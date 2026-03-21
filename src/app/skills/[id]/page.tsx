@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { ScoreBadge } from "@/components/score-badge";
 
+import { createServerSupabase } from "@/lib/supabase/server";
 import type { SkillDetailResponse, Execution } from "@/lib/types";
 import type { SkillStatus, AgentLoopType } from "@/lib/constants";
 import { AGENT_LOOP_TYPES } from "@/lib/constants";
@@ -142,24 +143,38 @@ interface PageProps {
   readonly params: Promise<{ id: string }>;
 }
 
-async function fetchSkillDetail(id: string): Promise<SkillDetailResponse | null> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const res = await fetch(`${baseUrl}/api/skills/${id}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return res.json() as Promise<SkillDetailResponse>;
-}
-
 export default async function SkillDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const data = await fetchSkillDetail(id);
+  const supabase = await createServerSupabase();
 
-  if (!data) {
+  const { data: skill } = await supabase
+    .from("skills")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (!skill) {
     notFound();
   }
 
-  const { skill, latestExecutions } = data;
+  // Fetch runs, scenarios, executions
+  const { data: runs } = await supabase
+    .from("benchmark_runs")
+    .select("*")
+    .eq("skill_id", id)
+    .order("run_number", { ascending: false });
+
+  const latestRun = runs?.[0];
+  let latestExecutions: Execution[] = [];
+
+  if (latestRun) {
+    const { data: executions } = await supabase
+      .from("executions")
+      .select("*")
+      .eq("benchmark_run_id", latestRun.id)
+      .order("model", { ascending: true });
+    latestExecutions = (executions ?? []) as Execution[];
+  }
   const isCompleted = skill.status === "completed";
   const groupedExecutions = groupExecutionsByAgentLoop(latestExecutions);
 
