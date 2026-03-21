@@ -8,8 +8,18 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createServerSupabase();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (!error && data.session) {
+      // Store the GitHub provider token for API access (repo listing, etc.)
+      const providerToken = data.session.provider_token;
+      if (providerToken) {
+        await supabase
+          .from("profiles")
+          .update({ github_access_token: providerToken })
+          .eq("id", data.session.user.id);
+      }
+
       return NextResponse.redirect(`${origin}${next}`);
     }
   }
