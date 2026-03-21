@@ -16,8 +16,6 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: NODE_ENV
@@ -42,8 +40,6 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: OPENROUTER_API_KEY
-        sync: false
-      - key: ANTHROPIC_API_KEY
         sync: false
       - key: NODE_ENV
         value: production
