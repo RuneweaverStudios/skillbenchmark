@@ -101,15 +101,30 @@ const callbacks: JobCallbacks = {
   },
 
   async saveExecutionResults(runId, results) {
-    const rows = results.map((r) => ({
-      benchmark_run_id: runId,
-      scenario_id: r.scenarioId,
-      model: r.model,
-      agent_loop: r.agentLoop,
-      with_skill: r.withSkill,
-      status: "completed",
-      ...(r.result as Record<string, unknown>),
-    }));
+    const rows = results.map((r) => {
+      const res = r.result as Record<string, unknown>;
+      return {
+        benchmark_run_id: runId,
+        scenario_id: r.scenarioId,
+        model: r.model,
+        agent_loop: r.agentLoop,
+        with_skill: r.withSkill,
+        status: res.error ? "failed" : "completed",
+        task_completed: res.taskCompleted ?? false,
+        total_turns: res.totalTurns ?? 0,
+        total_tool_calls: res.totalToolCalls ?? 0,
+        total_prompt_tokens: res.totalPromptTokens ?? 0,
+        total_completion_tokens: res.totalCompletionTokens ?? 0,
+        total_tokens: (res.totalPromptTokens as number ?? 0) + (res.totalCompletionTokens as number ?? 0),
+        total_cost_usd: res.totalCostUsd ?? 0,
+        initial_context_tokens: res.initialContextTokens ?? 0,
+        final_context_tokens: res.finalContextTokens ?? 0,
+        peak_context_tokens: res.peakContextTokens ?? 0,
+        avg_turn_latency_ms: res.avgTurnLatencyMs ?? 0,
+        p95_turn_latency_ms: res.p95TurnLatencyMs ?? 0,
+        error_message: res.error ?? null,
+      };
+    });
 
     const { error } = await supabase.from("executions").insert(rows);
     if (error) console.error(`Failed to save executions:`, error.message);
