@@ -75,32 +75,49 @@ export class OpenRouterClient {
     tools?: readonly OpenRouterTool[];
     maxTokens?: number;
     temperature?: number;
+    timeoutMs?: number;
   }): Promise<CompletionResponse> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://skillbenchmark.dev",
-        "X-Title": "SkillBenchmark",
-      },
-      body: JSON.stringify({
-        model: params.model,
-        messages: params.messages,
-        tools: params.tools,
-        max_tokens: params.maxTokens ?? 4096,
-        temperature: params.temperature ?? 0,
-        tool_choice: params.tools ? "auto" : undefined,
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      params.timeoutMs ?? 60_000
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `OpenRouter API error ${response.status}: ${errorText}`
-      );
+    try {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://skillbenchmark.dev",
+          "X-Title": "SkillBenchmark",
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: params.messages,
+          tools: params.tools,
+          max_tokens: params.maxTokens ?? 4096,
+          temperature: params.temperature ?? 0,
+          tool_choice: params.tools ? "auto" : undefined,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `OpenRouter API error ${response.status}: ${errorText}`
+        );
+      }
+
+      return response.json() as Promise<CompletionResponse>;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error("OpenRouter API request timed out after 60s");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return response.json() as Promise<CompletionResponse>;
   }
 }
