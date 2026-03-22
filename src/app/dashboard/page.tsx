@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Github, Calendar, LogIn } from "lucide-react";
+import { DeleteSkillButton } from "@/components/delete-skill-button";
 import type { Skill } from "@/lib/types";
 import type { SkillStatus } from "@/lib/constants";
 
@@ -162,12 +163,15 @@ export default async function DashboardPage() {
                         <CardTitle className="line-clamp-1">
                           {skill.display_name ?? skill.name ?? skill.repo_name}
                         </CardTitle>
-                        <Badge
-                          variant="outline"
-                          className={statusStyle.className}
-                        >
-                          {statusStyle.label}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className={statusStyle.className}
+                          >
+                            {statusStyle.label}
+                          </Badge>
+                          <DeleteSkillButton skillId={skill.id} />
+                        </div>
                       </div>
                       {skill.description && (
                         <CardDescription className="line-clamp-2">

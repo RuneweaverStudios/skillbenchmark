@@ -73,3 +73,55 @@ export async function GET(
     events: events ?? [],
   });
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const supabase = await createServerSupabase();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data: skill } = await supabase
+    .from("skills")
+    .select("id, submitted_by")
+    .eq("id", id)
+    .single();
+
+  if (!skill) {
+    return NextResponse.json({ error: "Skill not found" }, { status: 404 });
+  }
+  if (skill.submitted_by !== user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Delete related data (foreign key order)
+  await supabase.from("skill_activity_events").delete().eq("skill_id", id);
+
+  const { data: runs } = await supabase
+    .from("benchmark_runs")
+    .select("id")
+    .eq("skill_id", id);
+
+  if (runs && runs.length > 0) {
+    const runIds = runs.map((r) => r.id);
+    await supabase.from("executions").delete().in("benchmark_run_id", runIds);
+    await supabase.from("scenarios").delete().in("benchmark_run_id", runIds);
+    await supabase.from("benchmark_runs").delete().eq("skill_id", id);
+  }
+
+  const { error } = await supabase.from("skills").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
