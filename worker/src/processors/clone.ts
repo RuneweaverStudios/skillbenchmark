@@ -5,7 +5,7 @@
 
 import { execSync } from "child_process";
 import { existsSync, readFileSync, readdirSync, statSync, rmSync } from "fs";
-import { join, dirname, relative } from "path";
+import { join, relative } from "path";
 import { tmpdir } from "os";
 
 export interface CloneResult {
@@ -42,24 +42,9 @@ export async function cloneAndParse(params: {
       encoding: "utf8",
     }).trim();
 
-    // Search for skill files
-    // skillPath may be a file path (e.g. "SKILL.md") from a previous run —
-    // extract the directory portion so we search in the right place
-    let searchRoot = cloneDir;
-    if (params.skillPath) {
-      const candidate = join(cloneDir, params.skillPath);
-      if (existsSync(candidate) && statSync(candidate).isDirectory()) {
-        searchRoot = candidate;
-      } else {
-        // skillPath is a file path — use its parent directory
-        const parentDir = join(cloneDir, dirname(params.skillPath));
-        if (existsSync(parentDir) && statSync(parentDir).isDirectory()) {
-          searchRoot = parentDir;
-        }
-      }
-    }
-
-    const skillFile = findSkillFile(searchRoot);
+    // Always search from clone root — the recursive search handles
+    // any nesting depth (root, .claude/, .claude/skills/, etc.)
+    const skillFile = findSkillFile(cloneDir);
     if (!skillFile) {
       throw new Error(
         "No SKILL.md or _meta.json found in repository. " +
