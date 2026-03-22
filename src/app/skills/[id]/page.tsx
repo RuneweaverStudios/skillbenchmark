@@ -9,8 +9,6 @@ import {
   Award,
   BarChart3,
   FileText,
-  RotateCcw,
-  Wrench,
   AlertTriangle,
   CheckCircle2,
   TrendingDown,
@@ -28,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { BenchmarkLiveStatus } from "@/components/benchmark-live-status";
+import { BenchmarkActions } from "@/components/benchmark-actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -398,28 +397,15 @@ export default async function SkillDetailPage({ params }: PageProps) {
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <Link href={`/skills/${skill.id}`}>
-                    <Button variant="outline" size="sm" onClick={() => {
-                      fetch(`/api/skills/${skill.id}/restart`, { method: "POST" })
-                        .then(() => window.location.reload());
-                    }}>
-                      <RotateCcw className="mr-1.5 size-4" />
-                      Re-benchmark
-                    </Button>
-                  </Link>
-                  <Link
-                    href={`${skill.github_url}/issues/new?title=SkillBenchmark%3A%20Improvement%20suggestions&body=Score%3A%20${skill.overall_score}%2F100%0A%0AToken%20Efficiency%3A%20${skill.token_efficiency_score}%0ATask%20Completion%3A%20${skill.task_completion_score}%0AQuality%3A%20${skill.quality_preservation_score}%0ALatency%3A%20${skill.latency_impact_score}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button variant="outline" size="sm">
-                      <Wrench className="mr-1.5 size-4" />
-                      Fix Issues & Re-benchmark
-                      <ExternalLink className="ml-1.5 size-3" />
-                    </Button>
-                  </Link>
-                </div>
+                <BenchmarkActions
+                  skillId={skill.id}
+                  githubUrl={skill.github_url}
+                  overallScore={skill.overall_score}
+                  tokenEfficiencyScore={skill.token_efficiency_score}
+                  taskCompletionScore={skill.task_completion_score}
+                  qualityScore={skill.quality_preservation_score}
+                  latencyScore={skill.latency_impact_score}
+                />
               </CardContent>
             </Card>
           </section>
