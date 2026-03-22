@@ -39,7 +39,16 @@ export const SCENARIO_CATEGORIES = [
 export type ScenarioCategory = (typeof SCENARIO_CATEGORIES)[number];
 
 // Models available via OpenRouter (must support tool calling)
-export const BENCHMARK_MODELS = [
+export const BENCHMARK_MODELS_FREE = [
+  {
+    id: "nvidia/llama-3.1-nemotron-70b-instruct",
+    name: "Nemotron 70B",
+    tier: "free" as const,
+    supportsCliLoop: false,
+  },
+] as const;
+
+export const BENCHMARK_MODELS_PRO = [
   {
     id: "anthropic/claude-opus-4-6",
     name: "Claude Opus 4.6",
@@ -66,7 +75,10 @@ export const BENCHMARK_MODELS = [
   },
 ] as const;
 
-export type ModelConfig = (typeof BENCHMARK_MODELS)[number];
+// Default to free tier
+export const BENCHMARK_MODELS = BENCHMARK_MODELS_FREE;
+
+export type ModelConfig = (typeof BENCHMARK_MODELS_FREE)[number] | (typeof BENCHMARK_MODELS_PRO)[number];
 
 // Scoring weights
 export const SCORING_WEIGHTS = {

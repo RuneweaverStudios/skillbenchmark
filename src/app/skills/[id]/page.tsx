@@ -198,8 +198,11 @@ export default async function SkillDetailPage({ params }: PageProps) {
               {formatStatus(skill.status)}
             </Badge>
           </div>
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground font-mono">
+            {skill.repo_owner}/{skill.repo_name}
+          </p>
           {skill.description && (
-            <p className="max-w-2xl text-muted-foreground">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground line-clamp-3">
               {skill.description}
             </p>
           )}
@@ -209,6 +212,7 @@ export default async function SkillDetailPage({ params }: PageProps) {
           href={skill.github_url}
           target="_blank"
           rel="noopener noreferrer"
+          className="shrink-0"
         >
           <Button variant="outline" size="sm">
             <GitBranch className="mr-1.5 size-4" />

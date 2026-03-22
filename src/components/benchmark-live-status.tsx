@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import useSWR from "swr";
 import {
   CheckCircle2,
@@ -9,6 +9,12 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
+  FlaskConical,
+  ChevronDown,
+  ChevronUp,
+  XCircle,
+  RotateCcw,
+  Share2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -35,8 +41,20 @@ interface ActivityEvent {
   readonly created_at: string;
 }
 
+interface Scenario {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly system_prompt: string;
+  readonly user_prompt: string;
+  readonly max_turns: number;
+  readonly expected_tool_calls: number | null;
+}
+
 interface SkillStatusResponse {
   readonly skill: Skill;
+  readonly latestScenarios: readonly Scenario[];
 }
 
 interface EventsResponse {
@@ -180,9 +198,24 @@ function computeProgress(
 
 // ─── Component ──────────────────────────────────────────────────────────
 
+const CATEGORY_LABELS: Record<string, string> = {
+  token_efficiency: "Token Efficiency",
+  task_completion: "Task Completion",
+  quality_preservation: "Quality",
+  stress_test: "Stress Test",
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  token_efficiency: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  task_completion: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  quality_preservation: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  stress_test: "bg-red-500/10 text-red-400 border-red-500/20",
+};
+
 export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const hasReloaded = useRef(false);
+  const [expandedScenario, setExpandedScenario] = useState<string | null>(null);
 
   // Poll skill status
   const { data: statusData } = useSWR<SkillStatusResponse>(
@@ -215,6 +248,7 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
   );
 
   const skill = statusData?.skill;
+  const scenarios = statusData?.latestScenarios ?? [];
   const events = eventsData?.events ?? [];
   const sortedEvents = [...events].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -248,6 +282,29 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
   useEffect(() => {
     return handleReload();
   }, [handleReload]);
+
+  const handleCancel = async () => {
+    if (!confirm("Cancel this benchmark? This cannot be undone.")) return;
+    await fetch(`/api/skills/${skillId}/cancel`, { method: "POST" });
+    window.location.reload();
+  };
+
+  const handleRestart = async () => {
+    if (!confirm("Restart this benchmark from scratch?")) return;
+    await fetch(`/api/skills/${skillId}/restart`, { method: "POST" });
+    window.location.reload();
+  };
+
+  const handleShare = async () => {
+    const res = await fetch(`/api/skills/${skillId}/share`);
+    const data = await res.json();
+    if (navigator.share) {
+      await navigator.share({ title: data.title, text: data.text, url: data.url });
+    } else {
+      await navigator.clipboard.writeText(data.url);
+      alert("Link copied to clipboard!");
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -323,6 +380,47 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
             })}
           </div>
 
+          {/* Model indicator */}
+          <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+            <span className="text-xs font-medium text-zinc-500">Model</span>
+            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs">
+              Free
+            </Badge>
+            <span className="text-xs text-zinc-300">Nemotron 70B</span>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            {isInProgress && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
+              >
+                <XCircle className="size-3.5" />
+                Cancel
+              </button>
+            )}
+            {(isCompleted || isFailed) && (
+              <button
+                type="button"
+                onClick={handleRestart}
+                className="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"
+              >
+                <RotateCcw className="size-3.5" />
+                Restart
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleShare}
+              className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700/50"
+            >
+              <Share2 className="size-3.5" />
+              Share
+            </button>
+          </div>
+
           {/* Auto-update notice */}
           {isInProgress && (
             <p className="flex items-center gap-1.5 text-xs text-zinc-500">
@@ -354,6 +452,85 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
         </CardContent>
       </Card>
 
+      {/* ── Generated Scenarios ─────────────────────────────── */}
+      {scenarios.length > 0 && (
+        <Card className="border-zinc-800 bg-black">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-zinc-100">
+              <FlaskConical className="size-4 text-purple-400" />
+              Generated Scenarios
+            </CardTitle>
+            <CardDescription className="text-zinc-400">
+              {scenarios.length} test scenarios generated for benchmarking
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {scenarios.map((scenario) => {
+              const isExpanded = expandedScenario === scenario.id;
+              const catColor = CATEGORY_COLORS[scenario.category] ?? "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+
+              return (
+                <div
+                  key={scenario.id}
+                  className="rounded-lg border border-zinc-800 bg-zinc-900/50"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedScenario(isExpanded ? null : scenario.id)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800/50"
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-zinc-200">
+                          {scenario.name.replace(/_/g, " ")}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${catColor}`}
+                        >
+                          {CATEGORY_LABELS[scenario.category] ?? scenario.category}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-zinc-500 line-clamp-1">
+                        {scenario.description}
+                      </span>
+                    </div>
+                    {isExpanded ? (
+                      <ChevronUp className="size-4 shrink-0 text-zinc-500" />
+                    ) : (
+                      <ChevronDown className="size-4 shrink-0 text-zinc-500" />
+                    )}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-zinc-800 px-4 py-3 space-y-3">
+                      <div>
+                        <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">System Prompt</span>
+                        <pre className="mt-1 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-xs text-zinc-300 whitespace-pre-wrap font-mono">
+                          {scenario.system_prompt}
+                        </pre>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">User Prompt</span>
+                        <pre className="mt-1 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-xs text-zinc-300 whitespace-pre-wrap font-mono">
+                          {scenario.user_prompt}
+                        </pre>
+                      </div>
+                      <div className="flex gap-4 text-xs text-zinc-500">
+                        <span>Max turns: <span className="text-zinc-300">{scenario.max_turns}</span></span>
+                        {scenario.expected_tool_calls != null && (
+                          <span>Expected tool calls: <span className="text-zinc-300">{scenario.expected_tool_calls}</span></span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Activity Feed Section ────────────────────────────── */}
       <Card className="border-zinc-800 bg-black">
         <CardHeader>
@@ -367,7 +544,7 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
         <CardContent>
           <div
             ref={feedRef}
-            className="flex max-h-80 flex-col gap-1 overflow-y-auto pr-1"
+            className="flex max-h-96 flex-col gap-1 overflow-y-auto pr-1"
           >
             {sortedEvents.length === 0 && (
               <div className="flex items-center justify-center py-8">
@@ -377,6 +554,8 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
             {sortedEvents.map((event) => {
               const config = EVENT_CONFIG[event.event_type] ?? EVENT_CONFIG.info;
               const Icon = config.icon;
+              const meta = event.metadata as Record<string, unknown>;
+              const hasProgress = typeof meta.completed === "number" && typeof meta.total === "number";
 
               return (
                 <div
@@ -388,6 +567,32 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
                     <span className="text-sm text-zinc-200">
                       {event.message}
                     </span>
+                    {hasProgress && (
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${((meta.completed as number) / (meta.total as number)) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs tabular-nums text-zinc-500">
+                          {meta.completed as number}/{meta.total as number}
+                        </span>
+                      </div>
+                    )}
+                    {meta.categories && Array.isArray(meta.categories) && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(meta.categories as string[]).map((cat) => (
+                          <Badge
+                            key={cat}
+                            variant="outline"
+                            className={`text-xs ${CATEGORY_COLORS[cat] ?? "border-zinc-700 text-zinc-500"}`}
+                          >
+                            {CATEGORY_LABELS[cat] ?? cat}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <span className="text-xs text-zinc-500">
                       {formatRelativeTime(event.created_at)}
                     </span>

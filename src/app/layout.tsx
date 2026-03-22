@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { Github, Zap } from "lucide-react";
+import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { NavUser } from "@/components/nav-user";
 import "./globals.css";
 
 const inter = Inter({
@@ -78,12 +79,7 @@ export default function RootLayout({
 
               <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" />
 
-              <Link href="/login">
-                <Button variant="outline" size="sm">
-                  <Github className="size-4" />
-                  <span className="hidden sm:inline">Sign in</span>
-                </Button>
-              </Link>
+              <NavUser />
             </div>
           </nav>
         </header>

@@ -10,11 +10,10 @@ import { ClaudeCliLoop } from "../agent-loops/claude-cli-loop.js";
 import type { AgentLoop, AgentLoopConfig, AgentLoopResult, ToolHandler } from "../agent-loops/types.js";
 
 // Models to benchmark against (via OpenRouter)
+// Free tier: Nemotron 70B (free on OpenRouter)
+// Pro tier: Claude Opus, Codex, MiniMax, Kimi
 const BENCHMARK_MODELS = [
-  { id: "anthropic/claude-opus-4-6", supportsCliLoop: true },
-  { id: "openai/codex-5.2", supportsCliLoop: false },
-  { id: "minimax/minimax-m2.5", supportsCliLoop: false },
-  { id: "moonshotai/kimi-k2.5", supportsCliLoop: false },
+  { id: "nvidia/llama-3.1-nemotron-70b-instruct", supportsCliLoop: false },
 ];
 
 export interface BenchmarkScenario {

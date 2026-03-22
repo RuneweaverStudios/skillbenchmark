@@ -81,7 +81,7 @@ export async function generateScenarios(params: {
     .replace("{name}", params.skillName)
     .replace("{description}", params.skillDescription);
 
-  const model = params.generationModel ?? "anthropic/claude-sonnet-4-6";
+  const model = params.generationModel ?? "nvidia/llama-3.1-nemotron-70b-instruct";
 
   const response = await client.chatCompletion({
     model,

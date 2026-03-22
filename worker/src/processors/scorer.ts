@@ -129,7 +129,7 @@ async function judgeQuality(
   skillOutput: string
 ): Promise<number> {
   const response = await client.chatCompletion({
-    model: "anthropic/claude-sonnet-4-6",
+    model: "nvidia/llama-3.1-nemotron-70b-instruct",
     messages: [
       {
         role: "user",
