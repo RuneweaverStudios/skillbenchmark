@@ -74,12 +74,16 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check for duplicate
+  // Check for duplicate — only block if the same user has an active
+  // benchmark for this URL that was created within the last hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { data: existing } = await supabase
     .from("skills")
     .select("id, status")
     .eq("github_url", githubUrl)
+    .eq("submitted_by", user.id)
     .in("status", ["pending", "cloning", "parsing", "generating_scenarios", "benchmarking"])
+    .gte("created_at", oneHourAgo)
     .limit(1);
 
   if (existing && existing.length > 0) {
