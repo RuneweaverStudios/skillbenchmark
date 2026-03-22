@@ -20,19 +20,14 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: skillbenchmark-redis
-          property: connectionString
 
   # ─── Background Worker (benchmark pipeline) ────────────────────────────
   - type: worker
     name: skillbenchmark-worker
     runtime: node
     plan: free
-    buildCommand: npm install
-    startCommand: npx tsx worker/src/index.ts
+    buildCommand: cd worker && npm install
+    startCommand: cd worker && npm start
     autoDeploy: true
     envVars:
       - key: NEXT_PUBLIC_SUPABASE_URL
@@ -43,15 +38,3 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: skillbenchmark-redis
-          property: connectionString
-
-  # ─── Redis (job queue) ─────────────────────────────────────────────────
-  - type: keyvalue
-    name: skillbenchmark-redis
-    plan: free
-    maxmemoryPolicy: noeviction
-    ipAllowList: []

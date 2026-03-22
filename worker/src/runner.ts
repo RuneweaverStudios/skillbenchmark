@@ -1,33 +1,19 @@
 /**
- * Worker runner — consumes jobs from the BullMQ queue and processes them
+ * Worker runner — polls Supabase for pending skills and processes them
  * through the benchmark pipeline.
+ *
+ * No Redis/BullMQ required. The `skills` table IS the job queue.
  */
 
-import { Worker, type Job } from "bullmq";
 import { createClient } from "@supabase/supabase-js";
 import { processBenchmarkJob, type BenchmarkJob, type JobCallbacks } from "./index.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────
 
-const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY!;
-const QUEUE_NAME = "skill-intake";
-
-function parseRedisConnection() {
-  try {
-    const parsed = new URL(REDIS_URL);
-    return {
-      host: parsed.hostname,
-      port: Number(parsed.port) || 6379,
-      password: parsed.password || undefined,
-      username: parsed.username || undefined,
-    };
-  } catch {
-    return { host: "localhost", port: 6379 };
-  }
-}
+const POLL_INTERVAL_MS = 5_000;
 
 // ─── Supabase service client ────────────────────────────────────────────
 
@@ -49,7 +35,6 @@ const callbacks: JobCallbacks = {
   },
 
   async createBenchmarkRun(skillId, triggeredBy) {
-    // Get next run number
     const { data: existing } = await supabase
       .from("benchmark_runs")
       .select("run_number")
@@ -152,42 +137,75 @@ const callbacks: JobCallbacks = {
   },
 };
 
-// ─── Worker ─────────────────────────────────────────────────────────────
+// ─── Polling loop ───────────────────────────────────────────────────────
 
-const worker = new Worker(
-  QUEUE_NAME,
-  async (job: Job) => {
-    const data = job.data as BenchmarkJob & { userId?: string };
-    console.log(`[${data.skillId}] Processing job ${job.id}...`);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-    await processBenchmarkJob(
-      {
-        skillId: data.skillId,
-        githubUrl: data.githubUrl,
-        repoOwner: data.repoOwner,
-        repoName: data.repoName,
-        skillPath: data.skillPath,
-      },
-      callbacks,
-      { openrouterApiKey: OPENROUTER_API_KEY }
-    );
-  },
-  {
-    connection: parseRedisConnection(),
-    concurrency: 1,
+async function pollForJobs(): Promise<void> {
+  console.log("Worker started — polling Supabase for pending skills...");
+
+  while (true) {
+    try {
+      // Atomically claim a pending skill by updating its status to "cloning"
+      // This prevents multiple workers from grabbing the same job
+      const { data: pending } = await supabase
+        .from("skills")
+        .select("id, github_url, repo_owner, repo_name, skill_path")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      if (!pending || pending.length === 0) {
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      const skill = pending[0];
+      console.log(`[${skill.id}] Picked up job for ${skill.repo_owner}/${skill.repo_name}`);
+
+      try {
+        await processBenchmarkJob(
+          {
+            skillId: skill.id,
+            githubUrl: skill.github_url,
+            repoOwner: skill.repo_owner,
+            repoName: skill.repo_name,
+            skillPath: skill.skill_path ?? undefined,
+          },
+          callbacks,
+          { openrouterApiKey: OPENROUTER_API_KEY }
+        );
+        console.log(`[${skill.id}] Job completed successfully`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[${skill.id}] Job failed:`, message);
+
+        // Mark as failed so it doesn't get retried infinitely
+        await supabase
+          .from("skills")
+          .update({
+            status: "failed",
+            error_message: message,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", skill.id);
+
+        await supabase.from("skill_activity_events").insert({
+          skill_id: skill.id,
+          event_type: "error",
+          stage: "failed",
+          message: `Benchmark failed: ${message}`,
+          metadata: {},
+        });
+      }
+    } catch (err) {
+      // Poll loop error — log and continue
+      console.error("Poll error:", err instanceof Error ? err.message : err);
+      await sleep(POLL_INTERVAL_MS);
+    }
   }
-);
+}
 
-worker.on("completed", (job) => {
-  console.log(`[${job.data.skillId}] Job ${job.id} completed`);
-});
-
-worker.on("failed", (job, err) => {
-  console.error(`[${job?.data?.skillId}] Job ${job?.id} failed:`, err.message);
-});
-
-worker.on("error", (err) => {
-  console.error("Worker error:", err.message);
-});
-
-console.log(`Worker listening on queue "${QUEUE_NAME}"...`);
+pollForJobs();

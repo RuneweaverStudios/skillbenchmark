@@ -4,20 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/runner.ts",
+    "start": "tsx src/runner.ts",
     "build": "tsc"
   },
   "dependencies": {
-    "bullmq": "^5.0.0",
-    "dockerode": "^4.0.0",
-    "ioredis": "^5.4.0",
+    "@supabase/supabase-js": "^2.49.0",
     "simple-git": "^3.27.0",
     "gray-matter": "^4.0.3",
     "tiktoken": "^1.0.0"
   },
   "devDependencies": {
-    "@types/dockerode": "^3.3.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"

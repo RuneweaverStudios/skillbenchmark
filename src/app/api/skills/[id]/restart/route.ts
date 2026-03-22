@@ -1,5 +1,4 @@
 import { createServerSupabase } from "@/lib/supabase/server";
-import { enqueueSkillIntake } from "@/lib/queue/producers";
 import { NextResponse } from "next/server";
 
 export async function POST(
@@ -16,7 +15,7 @@ export async function POST(
   // Fetch skill
   const { data: skill } = await supabase
     .from("skills")
-    .select("*")
+    .select("id, submitted_by, status")
     .eq("id", id)
     .single();
 
@@ -28,7 +27,7 @@ export async function POST(
     return NextResponse.json({ error: "Can only restart completed or failed benchmarks" }, { status: 400 });
   }
 
-  // Reset skill status and clear old scores
+  // Reset skill status and clear old scores — worker picks up status="pending"
   const { error } = await supabase
     .from("skills")
     .update({
@@ -59,20 +58,6 @@ export async function POST(
     message: "Benchmark restarted by user",
     metadata: {},
   });
-
-  // Re-enqueue
-  try {
-    await enqueueSkillIntake({
-      skillId: skill.id,
-      githubUrl: skill.github_url,
-      repoOwner: skill.repo_owner,
-      repoName: skill.repo_name,
-      skillPath: skill.skill_path,
-      userId: user.id,
-    });
-  } catch (queueError) {
-    console.warn("Failed to enqueue skill restart:", queueError);
-  }
 
   return NextResponse.json({ success: true });
 }

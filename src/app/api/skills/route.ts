@@ -1,6 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { GITHUB_URL_PATTERN, parseGitHubUrl } from "@/lib/constants";
-import { enqueueSkillIntake } from "@/lib/queue/producers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -132,20 +131,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Enqueue job to clone, parse, and benchmark the skill
-  try {
-    await enqueueSkillIntake({
-      skillId: skill.id,
-      githubUrl: githubUrl,
-      repoOwner: parsed.owner,
-      repoName: parsed.repo,
-      skillPath: parsed.path,
-      userId: user.id,
-    });
-  } catch (queueError) {
-    // Queue may not be running in dev — skill is still created
-    console.warn("Failed to enqueue skill intake:", queueError);
-  }
-
+  // Worker polls for status="pending" skills — no enqueue needed
   return NextResponse.json({ skill }, { status: 201 });
 }

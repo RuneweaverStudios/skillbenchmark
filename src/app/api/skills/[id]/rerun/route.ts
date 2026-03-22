@@ -42,14 +42,11 @@ export async function POST(
     );
   }
 
-  // Reset skill status
+  // Reset skill status — worker polls for status="pending" automatically
   await supabase
     .from("skills")
     .update({ status: "pending", error_message: null })
     .eq("id", id);
-
-  // TODO: Enqueue job to re-benchmark
-  // await enqueueSkillIntake(id);
 
   return NextResponse.json({ message: "Benchmark re-triggered" });
 }

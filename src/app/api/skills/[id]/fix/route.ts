@@ -10,7 +10,6 @@
  */
 
 import { createServerSupabase } from "@/lib/supabase/server";
-import { enqueueSkillIntake } from "@/lib/queue/producers";
 import { generateReport } from "@/lib/report/generate-findings";
 import { NextResponse } from "next/server";
 import type { Execution } from "@/lib/types";
@@ -389,19 +388,7 @@ export async function POST(
     );
   }
 
-  // 9. Enqueue benchmark
-  try {
-    await enqueueSkillIntake({
-      skillId: newSkill.id,
-      githubUrl: `${skill.github_url}/tree/${branchName}`,
-      repoOwner: skill.repo_owner,
-      repoName: skill.repo_name,
-      skillPath: skill.skill_path,
-      userId: user.id,
-    });
-  } catch (err) {
-    console.warn("Failed to enqueue improvement benchmark:", err);
-  }
+  // 9. Worker picks up status="pending" automatically — no enqueue needed
 
   // 10. Add activity event
   await supabase.from("skill_activity_events").insert({
