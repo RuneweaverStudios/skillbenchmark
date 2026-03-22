@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { GITHUB_URL_PATTERN } from "@/lib/constants";
+import { GITHUB_URL_PATTERN, BENCHMARK_LEVELS, type BenchmarkLevel } from "@/lib/constants";
 import {
   Github,
   Search,
@@ -23,6 +23,9 @@ import {
   Loader2,
   AlertCircle,
   ExternalLink,
+  Zap,
+  BarChart3,
+  Crown,
 } from "lucide-react";
 
 interface GitHubRepo {
@@ -100,6 +103,7 @@ export default function SubmitPage() {
   const [fetchState, setFetchState] = useState<FetchState>({ kind: "loading" });
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
   const [manualUrl, setManualUrl] = useState("");
+  const [benchmarkLevel, setBenchmarkLevel] = useState<BenchmarkLevel>("basic");
 
   const isManualValid = GITHUB_URL_PATTERN.test(manualUrl.trim());
   const isSubmitting = submitState.kind === "loading";
@@ -182,7 +186,7 @@ export default function SubmitPage() {
       const response = await fetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_url: repo.html_url }),
+        body: JSON.stringify({ github_url: repo.html_url, benchmark_level: benchmarkLevel }),
       });
 
       const data = await response.json();
@@ -229,7 +233,7 @@ export default function SubmitPage() {
       const response = await fetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_url: trimmedUrl }),
+        body: JSON.stringify({ github_url: trimmedUrl, benchmark_level: benchmarkLevel }),
       });
 
       const data = await response.json();
@@ -443,6 +447,51 @@ export default function SubmitPage() {
                 className="pl-9"
                 aria-label="Filter repositories by name"
               />
+            </div>
+
+            {/* Benchmark Level Selector */}
+            <div className="space-y-3">
+              <h2 className="text-lg font-medium text-zinc-50">Benchmark Level</h2>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {(Object.entries(BENCHMARK_LEVELS) as [BenchmarkLevel, typeof BENCHMARK_LEVELS[BenchmarkLevel]][]).map(([key, level]) => {
+                  const isSelected = benchmarkLevel === key;
+                  const Icon = key === "basic" ? Zap : key === "standard" ? BarChart3 : Crown;
+                  const borderColor = isSelected
+                    ? key === "basic" ? "border-emerald-500 bg-emerald-500/5" : key === "standard" ? "border-blue-500 bg-blue-500/5" : "border-amber-500 bg-amber-500/5"
+                    : "border-zinc-800 hover:border-zinc-700";
+                  const iconColor = key === "basic" ? "text-emerald-400" : key === "standard" ? "text-blue-400" : "text-amber-400";
+
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setBenchmarkLevel(key)}
+                      className={`flex flex-col gap-2 rounded-lg border-2 p-4 text-left transition-all ${borderColor}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon className={`size-4 ${iconColor}`} />
+                          <span className="text-sm font-semibold text-zinc-100">{level.name}</span>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={key === "basic" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs" : "text-xs"}
+                        >
+                          {level.cost}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-zinc-400">{level.description}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {level.models.map((m) => (
+                          <span key={m.id} className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
+                            {m.name}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Repos with Skills */}

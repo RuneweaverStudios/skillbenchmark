@@ -380,14 +380,21 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
             })}
           </div>
 
-          {/* Model indicator */}
-          <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2">
-            <span className="text-xs font-medium text-zinc-500">Model</span>
-            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs">
-              Free
-            </Badge>
-            <span className="text-xs text-zinc-300">Nemotron 70B</span>
-          </div>
+          {/* Benchmark level indicator */}
+          {(() => {
+            const level = (skill as unknown as Record<string, unknown>)?.benchmark_level as string | null;
+            const cfg = level === "comprehensive"
+              ? { name: "Comprehensive", color: "border-amber-500/30 bg-amber-500/10 text-amber-400" }
+              : level === "standard"
+                ? { name: "Standard", color: "border-blue-500/30 bg-blue-500/10 text-blue-400" }
+                : { name: "Basic", color: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" };
+            return (
+              <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                <span className="text-xs font-medium text-zinc-500">Level</span>
+                <Badge variant="outline" className={`text-xs ${cfg.color}`}>{cfg.name}</Badge>
+              </div>
+            );
+          })()}
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">

@@ -18,6 +18,7 @@ export interface Skill {
   readonly skill_path: string | null;
   readonly format: SkillFormat;
   readonly status: SkillStatus;
+  readonly benchmark_level: string | null;
   readonly error_message: string | null;
 
   // Parsed metadata

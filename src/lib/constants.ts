@@ -38,47 +38,54 @@ export const SCENARIO_CATEGORIES = [
 ] as const;
 export type ScenarioCategory = (typeof SCENARIO_CATEGORIES)[number];
 
-// Models available via OpenRouter (must support tool calling)
-export const BENCHMARK_MODELS_FREE = [
-  {
-    id: "nvidia/llama-3.1-nemotron-70b-instruct",
-    name: "Nemotron 70B",
-    tier: "free" as const,
-    supportsCliLoop: false,
-  },
-] as const;
+// ─── Benchmark Levels ────────────────────────────────────────────────────
 
-export const BENCHMARK_MODELS_PRO = [
-  {
-    id: "anthropic/claude-opus-4-6",
-    name: "Claude Opus 4.6",
-    tier: "frontier" as const,
-    supportsCliLoop: true,
+export const BENCHMARK_LEVELS = {
+  basic: {
+    id: "basic" as const,
+    name: "Basic",
+    description: "Quick test with 1 free model, 2 scenarios",
+    scenarios: 2,
+    models: [
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Nemotron 70B", tier: "free" as const, supportsCliLoop: false },
+    ],
+    agentLoops: ["hermes"] as const,
+    cost: "Free",
   },
-  {
-    id: "openai/codex-5.2",
-    name: "Codex 5.2",
-    tier: "frontier" as const,
-    supportsCliLoop: false,
+  standard: {
+    id: "standard" as const,
+    name: "Standard",
+    description: "Full test with 2 models, 4 scenarios, 2 agent loops",
+    scenarios: 4,
+    models: [
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Nemotron 70B", tier: "free" as const, supportsCliLoop: false },
+      { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", tier: "budget" as const, supportsCliLoop: false },
+    ],
+    agentLoops: ["hermes", "claude_api"] as const,
+    cost: "~$0.50",
   },
-  {
-    id: "minimax/minimax-m2.5",
-    name: "MiniMax M2.5",
-    tier: "budget" as const,
-    supportsCliLoop: false,
+  comprehensive: {
+    id: "comprehensive" as const,
+    name: "Comprehensive",
+    description: "Full matrix — 4 models, 4 scenarios, all agent loops",
+    scenarios: 4,
+    models: [
+      { id: "anthropic/claude-opus-4-6", name: "Claude Opus 4.6", tier: "frontier" as const, supportsCliLoop: true },
+      { id: "openai/codex-5.2", name: "Codex 5.2", tier: "frontier" as const, supportsCliLoop: false },
+      { id: "minimax/minimax-m2.5", name: "MiniMax M2.5", tier: "budget" as const, supportsCliLoop: false },
+      { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", tier: "budget" as const, supportsCliLoop: false },
+    ],
+    agentLoops: ["hermes", "claude_api", "claude_cli"] as const,
+    cost: "~$5.00",
   },
-  {
-    id: "moonshotai/kimi-k2.5",
-    name: "Kimi K2.5",
-    tier: "budget" as const,
-    supportsCliLoop: false,
-  },
-] as const;
+} as const;
 
-// Default to free tier
-export const BENCHMARK_MODELS = BENCHMARK_MODELS_FREE;
+export type BenchmarkLevel = keyof typeof BENCHMARK_LEVELS;
 
-export type ModelConfig = (typeof BENCHMARK_MODELS_FREE)[number] | (typeof BENCHMARK_MODELS_PRO)[number];
+// Default models (basic tier)
+export const BENCHMARK_MODELS = BENCHMARK_LEVELS.basic.models;
+
+export type ModelConfig = (typeof BENCHMARK_LEVELS)[BenchmarkLevel]["models"][number];
 
 // Scoring weights
 export const SCORING_WEIGHTS = {
