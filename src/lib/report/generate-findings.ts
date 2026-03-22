@@ -77,8 +77,8 @@ function computeModelMetrics(executions: readonly Execution[]): readonly ModelMe
 
     if (ws.length === 0 || bl.length === 0) continue;
 
-    const wsTokens = mean(ws.map((e) => e.final_context_tokens ?? e.total_tokens ?? 0));
-    const blTokens = mean(bl.map((e) => e.final_context_tokens ?? e.total_tokens ?? 0));
+    const wsTokens = mean(ws.map((e) => e.total_tokens ?? 0));
+    const blTokens = mean(bl.map((e) => e.total_tokens ?? 0));
     const wsLatency = mean(ws.filter((e) => e.avg_turn_latency_ms != null).map((e) => e.avg_turn_latency_ms!));
     const blLatency = mean(bl.filter((e) => e.avg_turn_latency_ms != null).map((e) => e.avg_turn_latency_ms!));
 

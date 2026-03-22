@@ -58,15 +58,17 @@ function scoreTokenEfficiency(
   withSkill: readonly ExecutionResult[],
   baseline: readonly ExecutionResult[]
 ): number {
+  const totalTokens = (r: ExecutionResult) =>
+    r.result.totalPromptTokens + r.result.totalCompletionTokens;
   const avgWith = mean(
     withSkill
-      .filter((r) => r.result.finalContextTokens > 0)
-      .map((r) => r.result.finalContextTokens)
+      .filter((r) => totalTokens(r) > 0)
+      .map((r) => totalTokens(r))
   );
   const avgBase = mean(
     baseline
-      .filter((r) => r.result.finalContextTokens > 0)
-      .map((r) => r.result.finalContextTokens)
+      .filter((r) => totalTokens(r) > 0)
+      .map((r) => totalTokens(r))
   );
 
   if (avgBase === 0) return 50;
