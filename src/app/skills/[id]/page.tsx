@@ -11,8 +11,8 @@ import {
   FileText,
   AlertTriangle,
   CheckCircle2,
-  TrendingDown,
-  TrendingUp,
+  Info,
+  Lightbulb,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import type { SkillDetailResponse, Execution } from "@/lib/types";
 import type { SkillStatus, AgentLoopType } from "@/lib/constants";
 import { AGENT_LOOP_TYPES } from "@/lib/constants";
+import { generateReport, type FindingSeverity } from "@/lib/report/generate-findings";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -184,6 +185,20 @@ export default async function SkillDetailPage({ params }: PageProps) {
   const isCompleted = skill.status === "completed";
   const groupedExecutions = groupExecutionsByAgentLoop(latestExecutions);
 
+  // Generate data-driven report from execution data
+  const report = isCompleted
+    ? generateReport(
+        {
+          overall: skill.overall_score,
+          tokenEfficiency: skill.token_efficiency_score,
+          taskCompletion: skill.task_completion_score,
+          quality: skill.quality_preservation_score,
+          latency: skill.latency_impact_score,
+        },
+        latestExecutions
+      )
+    : null;
+
   // Determine which agent loop tabs have data
   const availableLoops = AGENT_LOOP_TYPES.filter(
     (loop) => groupedExecutions[loop] && groupedExecutions[loop].length > 0
@@ -309,92 +324,72 @@ export default async function SkillDetailPage({ params }: PageProps) {
               Benchmark Report
             </h2>
             <Card>
-              <CardContent className="pt-6 space-y-4">
-                {/* Findings */}
-                <div className="space-y-3">
-                  {(skill.token_efficiency_score ?? 0) < 50 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3">
-                      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
-                      <div>
-                        <p className="text-sm font-medium text-red-400">High Token Usage</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          The skill increases context size rather than reducing it. Consider adding output compression,
-                          summarization instructions, or removing verbose tool output formatting.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {(skill.token_efficiency_score ?? 0) >= 50 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3">
-                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-green-400" />
-                      <div>
-                        <p className="text-sm font-medium text-green-400">Good Token Efficiency</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          The skill effectively reduces context size compared to baseline.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {(skill.task_completion_score ?? 0) < 60 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3">
-                      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
-                      <div>
-                        <p className="text-sm font-medium text-red-400">Low Task Completion</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          The skill may be interfering with the model&apos;s ability to complete tasks.
-                          Check that instructions don&apos;t conflict with tool usage or add excessive constraints.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {(skill.task_completion_score ?? 0) >= 60 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3">
-                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-green-400" />
-                      <div>
-                        <p className="text-sm font-medium text-green-400">Solid Task Completion</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          The skill maintains or improves the model&apos;s ability to complete tasks.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {(skill.quality_preservation_score ?? 0) < 50 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-                      <TrendingDown className="mt-0.5 size-4 shrink-0 text-amber-400" />
-                      <div>
-                        <p className="text-sm font-medium text-amber-400">Quality Degradation</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          Response quality drops with the skill active. Review if the skill&apos;s instructions
-                          are overly restrictive or conflict with natural language generation.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {(skill.latency_impact_score ?? 0) < 40 && (
-                    <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-                      <TrendingDown className="mt-0.5 size-4 shrink-0 text-amber-400" />
-                      <div>
-                        <p className="text-sm font-medium text-amber-400">Increased Latency</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          The skill adds significant latency per turn. Consider reducing the skill&apos;s
-                          system prompt size or simplifying instructions.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <CardContent className="pt-6 space-y-5">
+                {/* Data-driven findings */}
+                {report && (
+                  <div className="space-y-4">
+                    {report.findings.map((finding) => {
+                      const colorMap: Record<FindingSeverity, { border: string; bg: string; text: string; Icon: typeof CheckCircle2 }> = {
+                        success: { border: "border-green-500/20", bg: "bg-green-500/5", text: "text-green-400", Icon: CheckCircle2 },
+                        warning: { border: "border-amber-500/20", bg: "bg-amber-500/5", text: "text-amber-400", Icon: AlertTriangle },
+                        error: { border: "border-red-500/20", bg: "bg-red-500/5", text: "text-red-400", Icon: AlertTriangle },
+                        info: { border: "border-blue-500/20", bg: "bg-blue-500/5", text: "text-blue-400", Icon: Info },
+                      };
+                      const style = colorMap[finding.severity];
+                      const { Icon } = style;
 
-                {/* Summary */}
-                <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
-                  <p className="text-sm text-zinc-300">
-                    <span className="font-medium">Overall: </span>
-                    {(skill.overall_score ?? 0) >= 75
-                      ? "This skill performs well across all dimensions. Ready for production use."
-                      : (skill.overall_score ?? 0) >= 50
-                        ? "This skill shows promise but has areas for improvement. Review the issues above to optimize performance."
-                        : "This skill needs significant improvement. Focus on the critical issues identified above before deploying."}
-                  </p>
-                </div>
+                      return (
+                        <div key={finding.dimension} className={`rounded-lg border ${style.border} ${style.bg} px-4 py-3`}>
+                          <div className="flex items-start gap-3">
+                            <Icon className={`mt-0.5 size-4 shrink-0 ${style.text}`} />
+                            <div className="flex-1 space-y-2">
+                              <div>
+                                <p className={`text-sm font-medium ${style.text}`}>{finding.title}</p>
+                                <p className="text-xs text-zinc-400 mt-0.5">{finding.summary}</p>
+                              </div>
+
+                              {/* Data points */}
+                              {finding.dataPoints.length > 0 && (
+                                <div className="space-y-0.5">
+                                  {finding.dataPoints.map((point, i) => (
+                                    <p key={i} className="text-xs text-zinc-500 font-mono">
+                                      {point}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Improvement suggestions */}
+                              {finding.suggestions.length > 0 && (
+                                <div className="border-t border-zinc-800 pt-2 mt-2">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <Lightbulb className="size-3 text-zinc-500" />
+                                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Suggestions</span>
+                                  </div>
+                                  {finding.suggestions.map((suggestion, i) => (
+                                    <p key={i} className="text-xs text-zinc-400 leading-relaxed">
+                                      &bull; {suggestion}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Overall summary */}
+                {report && (
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+                    <p className="text-sm text-zinc-300">
+                      <span className="font-medium">Overall: </span>
+                      {report.overallSummary}
+                    </p>
+                  </div>
+                )}
 
                 {/* Action buttons */}
                 <BenchmarkActions

@@ -587,7 +587,7 @@ export function BenchmarkLiveStatus({ skillId }: BenchmarkLiveStatusProps) {
                         </span>
                       </div>
                     )}
-                    {meta.categories && Array.isArray(meta.categories) && (
+                    {Array.isArray(meta.categories) && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {(meta.categories as string[]).map((cat) => (
                           <Badge

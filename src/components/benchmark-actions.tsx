@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Wrench, ExternalLink } from "lucide-react";
+import { RotateCcw, Wrench, Loader2 } from "lucide-react";
 
 interface BenchmarkActionsProps {
   readonly skillId: string;
@@ -15,34 +17,96 @@ interface BenchmarkActionsProps {
 
 export function BenchmarkActions({
   skillId,
-  githubUrl,
   overallScore,
-  tokenEfficiencyScore,
-  taskCompletionScore,
-  qualityScore,
-  latencyScore,
 }: BenchmarkActionsProps) {
+  const router = useRouter();
+  const [fixing, setFixing] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
   const handleRestart = async () => {
     if (!confirm("Restart this benchmark from scratch?")) return;
-    await fetch(`/api/skills/${skillId}/restart`, { method: "POST" });
-    window.location.reload();
+    setRestarting(true);
+    try {
+      await fetch(`/api/skills/${skillId}/restart`, { method: "POST" });
+      window.location.reload();
+    } finally {
+      setRestarting(false);
+    }
   };
 
-  const issueUrl = `${githubUrl}/issues/new?title=SkillBenchmark%3A%20Improvement%20suggestions&body=Score%3A%20${overallScore}%2F100%0A%0AToken%20Efficiency%3A%20${tokenEfficiencyScore}%0ATask%20Completion%3A%20${taskCompletionScore}%0AQuality%3A%20${qualityScore}%0ALatency%3A%20${latencyScore}`;
+  const handleFix = async () => {
+    const confirmed = confirm(
+      `This will:\n` +
+        `1. Use AI to generate an improved version of your skill\n` +
+        `2. Push it to a new branch on your repo\n` +
+        `3. Benchmark the improved version\n\n` +
+        `Current score: ${overallScore}/100\n\n` +
+        `Continue?`
+    );
+    if (!confirmed) return;
+
+    setFixing(true);
+    setFixError(null);
+
+    try {
+      const res = await fetch(`/api/skills/${skillId}/fix`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFixError(data.error ?? "Failed to generate improvements");
+        return;
+      }
+
+      // Redirect to the new skill's benchmark page
+      router.push(`/skills/${data.newSkillId}`);
+    } catch {
+      setFixError("Network error — please try again");
+    } finally {
+      setFixing(false);
+    }
+  };
 
   return (
-    <div className="flex flex-wrap gap-3 pt-2">
-      <Button variant="outline" size="sm" onClick={handleRestart}>
-        <RotateCcw className="mr-1.5 size-4" />
-        Re-benchmark
-      </Button>
-      <a href={issueUrl} target="_blank" rel="noopener noreferrer">
-        <Button variant="outline" size="sm">
-          <Wrench className="mr-1.5 size-4" />
-          Fix Issues & Re-benchmark
-          <ExternalLink className="ml-1.5 size-3" />
+    <div className="space-y-2 pt-2">
+      <div className="flex flex-wrap gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRestart}
+          disabled={restarting || fixing}
+        >
+          {restarting ? (
+            <Loader2 className="mr-1.5 size-4 animate-spin" />
+          ) : (
+            <RotateCcw className="mr-1.5 size-4" />
+          )}
+          Re-benchmark
         </Button>
-      </a>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleFix}
+          disabled={fixing || restarting}
+        >
+          {fixing ? (
+            <>
+              <Loader2 className="mr-1.5 size-4 animate-spin" />
+              Generating improvements...
+            </>
+          ) : (
+            <>
+              <Wrench className="mr-1.5 size-4" />
+              Fix Issues &amp; Re-benchmark
+            </>
+          )}
+        </Button>
+      </div>
+      {fixError && (
+        <p className="text-xs text-red-400">{fixError}</p>
+      )}
     </div>
   );
 }
