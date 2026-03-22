@@ -214,7 +214,7 @@ export default async function SkillDetailPage({ params }: PageProps) {
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              {skill.display_name ?? skill.name ?? "Unnamed Skill"}
+              {skill.display_name ?? skill.name ?? skill.repo_name}
             </h1>
             <Badge variant="outline">{formatFormat(skill.format)}</Badge>
             <Badge variant={statusVariant(skill.status)}>
