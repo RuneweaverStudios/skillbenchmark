@@ -102,9 +102,9 @@ export async function POST(request: Request) {
     .eq("submitted_by", user.id)
     .gte("created_at", today.toISOString());
 
-  if ((todayCount ?? 0) >= 3) {
+  if ((todayCount ?? 0) >= 5) {
     return NextResponse.json(
-      { error: "Daily submission limit reached (3 per day)" },
+      { error: "Daily submission limit reached (5 per day)" },
       { status: 429 }
     );
   }
