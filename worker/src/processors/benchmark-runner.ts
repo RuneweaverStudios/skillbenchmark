@@ -13,7 +13,7 @@ import type { AgentLoop, AgentLoopConfig, AgentLoopResult, ToolHandler } from ".
 // Free tier: Nemotron 70B (free on OpenRouter)
 // Pro tier: Claude Opus, Codex, MiniMax, Kimi
 const BENCHMARK_MODELS = [
-  { id: "nvidia/llama-3.1-nemotron-70b-instruct", supportsCliLoop: false },
+  { id: "nvidia/nemotron-3-super-120b-a12b:free", supportsCliLoop: false },
 ];
 
 export interface BenchmarkScenario {

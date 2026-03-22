@@ -81,7 +81,7 @@ export async function generateScenarios(params: {
     .replace("{name}", params.skillName)
     .replace("{description}", params.skillDescription);
 
-  const model = params.generationModel ?? "nvidia/llama-3.1-nemotron-70b-instruct";
+  const model = params.generationModel ?? "nvidia/nemotron-3-super-120b-a12b:free";
 
   const response = await client.chatCompletion({
     model,

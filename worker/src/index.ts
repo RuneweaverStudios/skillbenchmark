@@ -135,7 +135,7 @@ export async function processBenchmarkJob(
         success_criteria: s.success_criteria,
         expected_tool_calls: s.expected_tool_calls,
         max_turns: s.max_turns,
-        generation_model: "nvidia/llama-3.1-nemotron-70b-instruct",
+        generation_model: "nvidia/nemotron-3-super-120b-a12b:free",
       }))
     );
     await callbacks.emitActivityEvent(skillId, { event_type: 'info', stage: 'generating_scenarios', message: 'Scenarios saved, preparing benchmark matrix...' });
