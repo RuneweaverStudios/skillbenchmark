@@ -1,4 +1,4 @@
-import { createServerSupabase } from "@/lib/supabase/server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -81,6 +81,7 @@ export async function DELETE(
   const { id } = await params;
   const supabase = await createServerSupabase();
 
+  // Auth check with user's session
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -89,6 +90,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Verify ownership
   const { data: skill } = await supabase
     .from("skills")
     .select("id, submitted_by")
@@ -102,22 +104,24 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Delete related data (foreign key order)
-  await supabase.from("skill_activity_events").delete().eq("skill_id", id);
+  // Use service role to bypass RLS for deletion
+  const admin = createServiceSupabase();
 
-  const { data: runs } = await supabase
+  await admin.from("skill_activity_events").delete().eq("skill_id", id);
+
+  const { data: runs } = await admin
     .from("benchmark_runs")
     .select("id")
     .eq("skill_id", id);
 
   if (runs && runs.length > 0) {
     const runIds = runs.map((r) => r.id);
-    await supabase.from("executions").delete().in("benchmark_run_id", runIds);
-    await supabase.from("scenarios").delete().in("benchmark_run_id", runIds);
-    await supabase.from("benchmark_runs").delete().eq("skill_id", id);
+    await admin.from("executions").delete().in("benchmark_run_id", runIds);
+    await admin.from("scenarios").delete().in("benchmark_run_id", runIds);
+    await admin.from("benchmark_runs").delete().eq("skill_id", id);
   }
 
-  const { error } = await supabase.from("skills").delete().eq("id", id);
+  const { error } = await admin.from("skills").delete().eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });

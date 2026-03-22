@@ -18,7 +18,7 @@ export function DeleteSkillButton({ skillId }: { readonly skillId: string }) {
     try {
       const res = await fetch(`/api/skills/${skillId}`, { method: "DELETE" });
       if (res.ok) {
-        router.refresh();
+        window.location.reload();
       } else {
         const data = await res.json();
         alert(data.error ?? "Failed to delete");
