@@ -28,7 +28,13 @@ export function BenchmarkActions({
     if (!confirm("Restart this benchmark from scratch?")) return;
     setRestarting(true);
     try {
-      await fetch(`/api/skills/${skillId}/restart`, { method: "POST" });
+      const res = await fetch(`/api/skills/${skillId}/restart`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error ?? "Failed to restart");
+        return;
+      }
+      // Full reload to re-render server component with updated status
       window.location.reload();
     } finally {
       setRestarting(false);
