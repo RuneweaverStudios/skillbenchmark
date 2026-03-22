@@ -26,8 +26,8 @@ services:
     name: skillbenchmark-worker
     runtime: node
     plan: free
-    buildCommand: cd worker && npm install
-    startCommand: cd worker && npm start
+    buildCommand: cd worker && npm install --include=dev && npm run build
+    startCommand: cd worker && node dist/runner.js
     autoDeploy: true
     envVars:
       - key: NEXT_PUBLIC_SUPABASE_URL

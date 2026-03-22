@@ -5,7 +5,7 @@
 
 interface ChatMessage {
   readonly role: "system" | "user" | "assistant" | "tool";
-  readonly content: string | readonly ContentBlock[];
+  readonly content: string | readonly ContentBlock[] | null;
   readonly tool_call_id?: string;
   readonly tool_calls?: readonly ToolCall[];
 }
