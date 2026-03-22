@@ -140,9 +140,9 @@ function findSkillFile(dir: string, depth = 0): SkillFileMatch | null {
       }
     }
 
-    // Recurse into subdirectories
+    // Recurse into subdirectories (include .claude/ but skip .git/)
     for (const entry of entries) {
-      if (entry.startsWith(".") || entry === "node_modules") continue;
+      if (entry === ".git" || entry === "node_modules") continue;
       const fullPath = join(dir, entry);
       if (statSync(fullPath).isDirectory()) {
         const found = findSkillFile(fullPath, depth + 1);
