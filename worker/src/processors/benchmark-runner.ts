@@ -1,20 +1,32 @@
 /**
  * Benchmark execution orchestrator.
- * Manages the full benchmark pipeline: scenarios × models × agent loops × with/without skill.
- * Coordinates parallel execution with rate limiting.
+ *
+ * Runs each benchmark in an isolated Docker container with real bash execution.
+ * The container receives config via mounted JSON, runs an actual agent loop
+ * with real tool execution, and writes results to output.json.
  */
 
-import { HermesLoop } from "../agent-loops/hermes-loop.js";
-import { ClaudeApiLoop } from "../agent-loops/claude-loop.js";
-import { ClaudeCliLoop } from "../agent-loops/claude-cli-loop.js";
-import type { AgentLoop, AgentLoopConfig, AgentLoopResult, ToolHandler } from "../agent-loops/types.js";
+import path from "node:path";
+import {
+  runBenchmarkContainer,
+  ensureImageBuilt,
+  type ContainerResult,
+} from "../docker/container-manager.js";
+import type { AgentLoopResult, TurnMetric } from "../agent-loops/types.js";
 
-// Models to benchmark against (via OpenRouter)
-// Free tier: Nemotron 70B (free on OpenRouter)
-// Pro tier: Claude Opus, Codex, MiniMax, Kimi
+// ─── Config ─────────────────────────────────────────────────────────────
+
 const BENCHMARK_MODELS = [
   { id: "z-ai/glm-4.7-flash", supportsCliLoop: false },
 ];
+
+const DOCKER_IMAGE = "skillbench-runner:latest";
+const DOCKERFILE_PATH = path.resolve(
+  import.meta.dirname ?? new URL(".", import.meta.url).pathname,
+  "../docker/Dockerfile"
+);
+
+// ─── Types ──────────────────────────────────────────────────────────────
 
 export interface BenchmarkScenario {
   readonly id: string;
@@ -38,9 +50,11 @@ export interface ExecutionResult {
   readonly result: AgentLoopResult;
 }
 
+// ─── Main ───────────────────────────────────────────────────────────────
+
 /**
- * Run all benchmark executions for a skill.
- * Returns results for every (scenario, model, agent_loop, with/without) combination.
+ * Run all benchmark executions for a skill using Docker containers.
+ * Each execution runs in an isolated container with real bash.
  */
 export async function runBenchmarks(params: {
   scenarios: readonly BenchmarkScenario[];
@@ -54,29 +68,26 @@ export async function runBenchmarks(params: {
     scenarios,
     skillContent,
     openrouterApiKey,
-    concurrency = 4,
+    concurrency = 2,
     timeoutMs = 300_000,
   } = params;
 
-  // Build execution matrix
+  // Ensure the Docker image is built before starting benchmarks
+  await ensureImageBuilt(DOCKERFILE_PATH, DOCKER_IMAGE);
+
+  // Build execution matrix: scenario × model × with/without skill
   const jobs: ExecutionJob[] = [];
 
   for (const scenario of scenarios) {
     for (const model of BENCHMARK_MODELS) {
-      // Hermes loop for all models (OpenAI-compatible tool calling)
       for (const withSkill of [true, false]) {
-        jobs.push({ scenario, model: model.id, loopType: "hermes", withSkill });
+        jobs.push({ scenario, model: model.id, withSkill });
       }
 
-      // Claude CLI only for models that support it
+      // Claude CLI loop for models that support it
       if (model.supportsCliLoop) {
         for (const withSkill of [true, false]) {
-          jobs.push({
-            scenario,
-            model: model.id,
-            loopType: "claude_cli",
-            withSkill,
-          });
+          jobs.push({ scenario, model: model.id, withSkill, cliLoop: true });
         }
       }
     }
@@ -91,19 +102,36 @@ export async function runBenchmarks(params: {
 
   for (const job of jobs) {
     const promise = (async () => {
-      const label = `${job.scenario.name} [${job.withSkill ? "with skill" : "baseline"}]`;
-      console.log(`[benchmark] Starting: ${label}`);
-      // Each job gets its own tool handler so callCount is isolated
-      const toolHandler = createToolHandler();
-      const result = await executeJob(job, {
-        skillContent,
-        openrouterApiKey,
+      const label = `${job.scenario.name} [${job.withSkill ? "skill" : "baseline"}]`;
+      console.log(`[benchmark] Starting container: ${label}`);
+
+      const containerResult = await runBenchmarkContainer({
+        image: DOCKER_IMAGE,
+        model: job.model,
+        systemPrompt: job.scenario.systemPrompt,
+        userPrompt: job.scenario.userPrompt,
+        tools: job.scenario.tools,
+        skillContent: job.withSkill ? skillContent : null,
+        withSkill: job.withSkill,
+        maxTurns: job.scenario.maxTurns,
         timeoutMs,
-        toolHandler,
+        openrouterApiKey,
       });
-      results.push(result);
+
+      const agentResult = containerResultToAgentResult(containerResult);
+
+      results.push({
+        scenarioId: job.scenario.id,
+        model: job.model,
+        agentLoop: job.cliLoop ? "claude_cli" : "hermes",
+        withSkill: job.withSkill,
+        result: agentResult,
+      });
+
       completed++;
-      const status = result.result.error ? `failed: ${result.result.error}` : "done";
+      const status = agentResult.error
+        ? `failed: ${agentResult.error}`
+        : `done (${agentResult.totalTurns} turns, ${agentResult.totalPromptTokens + agentResult.totalCompletionTokens} tokens)`;
       console.log(`[benchmark] ${completed}/${total} ${label} — ${status}`);
       params.onProgress?.(completed, total);
     })();
@@ -121,195 +149,50 @@ export async function runBenchmarks(params: {
   return Object.freeze(results);
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────────
+
 interface ExecutionJob {
   readonly scenario: BenchmarkScenario;
   readonly model: string;
-  readonly loopType: "hermes" | "claude_api" | "claude_cli";
   readonly withSkill: boolean;
+  readonly cliLoop?: boolean;
 }
 
-async function executeJob(
-  job: ExecutionJob,
-  ctx: {
-    skillContent: string;
-    openrouterApiKey: string;
-    timeoutMs: number;
-    toolHandler: ToolHandler;
-  }
-): Promise<ExecutionResult> {
-  const loop = createLoop(job.loopType, ctx.toolHandler);
-
-  const config: AgentLoopConfig = {
-    model: job.model,
-    systemPrompt: job.scenario.systemPrompt,
-    userPrompt: job.scenario.userPrompt,
-    tools: job.scenario.tools,
-    maxTurns: job.scenario.maxTurns,
-    skillContent: job.withSkill ? ctx.skillContent : null,
-    withSkill: job.withSkill,
-    openrouterApiKey: ctx.openrouterApiKey,
-    timeoutMs: ctx.timeoutMs,
-  };
-
-  let result: AgentLoopResult;
-  try {
-    result = await loop.run(config);
-  } catch (e) {
-    result = {
-      taskCompleted: false,
-      totalTurns: 0,
-      totalToolCalls: 0,
-      totalPromptTokens: 0,
-      totalCompletionTokens: 0,
-      totalCostUsd: 0,
-      initialContextTokens: 0,
-      finalContextTokens: 0,
-      peakContextTokens: 0,
-      avgTurnLatencyMs: 0,
-      p95TurnLatencyMs: 0,
-      turnMetrics: [],
-      finalAssistantMessage: "",
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
-
-  return {
-    scenarioId: job.scenario.id,
-    model: job.model,
-    agentLoop: job.loopType,
-    withSkill: job.withSkill,
-    result,
-  };
-}
-
-function createLoop(
-  type: "hermes" | "claude_api" | "claude_cli",
-  toolHandler: ToolHandler
-): AgentLoop {
-  switch (type) {
-    case "hermes":
-      return new HermesLoop(toolHandler);
-    case "claude_api":
-      return new ClaudeApiLoop(toolHandler);
-    case "claude_cli":
-      return new ClaudeCliLoop();
-  }
-}
-
-/**
- * Create a simulated tool handler that returns realistic output.
- *
- * Output size varies by tool type to simulate real-world behavior:
- * - Native MCP tools (mcp__*, query, search, fetch, read): large verbose JSON
- * - CLI/bash tools (bash, exec, run, shell, command): compact output
- * - Other tools: medium output
- *
- * This is critical for skills that route tool calls through compact CLIs
- * (e.g., dietmcp) — their value shows up as smaller tool results.
- */
-function createToolHandler(): ToolHandler {
-  let callCount = 0;
-
-  return async (name: string, args: Record<string, unknown>): Promise<string> => {
-    callCount++;
-    const lowerName = name.toLowerCase();
-    const argsStr = JSON.stringify(args).toLowerCase();
-
-    // Detect tool type by name and arguments
-    const isCompactTool = isCompactToolCall(lowerName, argsStr);
-    const isVerboseTool = isVerboseToolCall(lowerName, argsStr);
-
-    // Compact tools: ~200-500 chars (CLI output, compressed results)
-    // Verbose tools: ~2000-8000 chars (full MCP JSON, raw API responses)
-    // Default tools: ~500-2000 chars
-    let baseSize: number;
-    if (isCompactTool) {
-      baseSize = 200;
-    } else if (isVerboseTool) {
-      baseSize = 2000;
-    } else {
-      baseSize = 500;
+/** Map ContainerResult to AgentLoopResult for compatibility with scorer */
+function containerResultToAgentResult(cr: ContainerResult): AgentLoopResult {
+  const turnMetrics: TurnMetric[] = (cr.turnMetrics as unknown[]).map(
+    (t: unknown) => {
+      const raw = t as Record<string, unknown>;
+      return {
+        turnNumber: Number(raw.turn ?? raw.turnNumber ?? 0),
+        promptTokens: Number(raw.prompt_tokens ?? raw.promptTokens ?? 0),
+        completionTokens: Number(raw.completion_tokens ?? raw.completionTokens ?? 0),
+        contextChars: Number(raw.contextChars ?? 0),
+        latencyMs: Number(raw.latency_ms ?? raw.latencyMs ?? 0),
+        costUsd: Number(raw.costUsd ?? 0),
+        toolName: (raw.tool_calls as unknown[])?.length > 0
+          ? String((raw.tool_calls as Record<string, unknown>[])[0]?.tool_name ?? null)
+          : null,
+        toolResultRawSize: Number(raw.tool_result_size ?? raw.toolResultRawSize ?? 0),
+        toolResultFilteredSize: Number(raw.tool_result_size ?? raw.toolResultFilteredSize ?? 0),
+      };
     }
+  );
 
-    // Progressive growth to simulate context accumulation
-    const growthFactor = Math.min(callCount * 0.3, 5);
-    const targetSize = Math.floor(baseSize * (1 + growthFactor));
-
-    if (isCompactTool) {
-      return generateCompactOutput(name, args, callCount, targetSize);
-    }
-
-    const result: Record<string, unknown> = {
-      tool: name,
-      call_number: callCount,
-      args,
-      timestamp: new Date().toISOString(),
-      data: generateVerboseData(name, targetSize),
-    };
-
-    return JSON.stringify(result, null, isVerboseTool ? 2 : 0);
-  };
-}
-
-/** CLI/bash tools, exec commands, compact routers */
-function isCompactToolCall(name: string, argsStr: string): boolean {
-  // Direct CLI tool names
-  if (/\b(bash|shell|exec|run_command|terminal|command)\b/.test(name)) return true;
-  // Tool args that suggest CLI routing (e.g., "dietmcp exec", "npx", "curl")
-  if (/\b(dietmcp|npx|curl|cli|pipe)\b/.test(argsStr)) return true;
-  return false;
-}
-
-/** Native MCP tools, large data fetchers, API responses */
-function isVerboseToolCall(name: string, _argsStr: string): boolean {
-  // Native MCP tool naming convention
-  if (name.startsWith("mcp__") || name.startsWith("mcp_")) return true;
-  // Common verbose tool patterns
-  if (/\b(query|search|fetch|read_file|get_contents|list_|find_|api_call)\b/.test(name)) return true;
-  return false;
-}
-
-/** Compact CLI-style output */
-function generateCompactOutput(
-  name: string,
-  args: Record<string, unknown>,
-  callNumber: number,
-  targetSize: number
-): string {
-  // Simulate concise CLI output (like dietmcp exec produces)
-  const lines: string[] = [];
-  const lineCount = Math.max(2, Math.floor(targetSize / 80));
-
-  lines.push(`$ ${name} ${Object.values(args).join(" ")}`.slice(0, 120));
-  for (let i = 0; i < lineCount - 1; i++) {
-    lines.push(`  result_${i}: item-${callNumber}-${i} [ok]`);
-  }
-
-  return lines.join("\n");
-}
-
-/** Verbose MCP/API-style JSON output */
-function generateVerboseData(toolName: string, targetSize: number): unknown {
-  const items: Record<string, unknown>[] = [];
-  const itemCount = Math.max(1, Math.floor(targetSize / 200));
-
-  for (let i = 0; i < itemCount; i++) {
-    items.push({
-      id: `item-${i}`,
-      name: `${toolName}-result-${i}`,
-      type: "resource",
-      status: i % 3 === 0 ? "error" : "ok",
-      details: `Result from ${toolName} call, item ${i}. `.repeat(3),
-      content: `Full content block ${i} with detailed information about the resource returned by ${toolName}.`.repeat(2),
-      metadata: {
-        timestamp: new Date().toISOString(),
-        source: toolName,
-        index: i,
-        schema_version: "1.0",
-        provider: toolName.split("_")[0],
-      },
-    });
-  }
-
-  return items;
+  return Object.freeze({
+    taskCompleted: cr.taskCompleted,
+    totalTurns: cr.totalTurns,
+    totalToolCalls: cr.totalToolCalls,
+    totalPromptTokens: cr.totalPromptTokens,
+    totalCompletionTokens: cr.totalCompletionTokens,
+    totalCostUsd: cr.totalCostUsd,
+    initialContextTokens: cr.initialContextTokens,
+    finalContextTokens: cr.finalContextTokens,
+    peakContextTokens: cr.peakContextTokens,
+    avgTurnLatencyMs: cr.avgTurnLatencyMs,
+    p95TurnLatencyMs: cr.p95TurnLatencyMs,
+    turnMetrics,
+    finalAssistantMessage: cr.finalAssistantMessage,
+    error: cr.error,
+  });
 }
