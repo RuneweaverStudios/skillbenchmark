@@ -13,7 +13,7 @@ import type { AgentLoop, AgentLoopConfig, AgentLoopResult, ToolHandler } from ".
 // Free tier: Nemotron 70B (free on OpenRouter)
 // Pro tier: Claude Opus, Codex, MiniMax, Kimi
 const BENCHMARK_MODELS = [
-  { id: "nvidia/nemotron-3-super-120b-a12b:free", supportsCliLoop: false },
+  { id: "z-ai/glm-4.7-flash:free", supportsCliLoop: false },
 ];
 
 export interface BenchmarkScenario {
@@ -91,6 +91,8 @@ export async function runBenchmarks(params: {
 
   for (const job of jobs) {
     const promise = (async () => {
+      const label = `${job.scenario.name} [${job.withSkill ? "with skill" : "baseline"}]`;
+      console.log(`[benchmark] Starting: ${label}`);
       // Each job gets its own tool handler so callCount is isolated
       const toolHandler = createToolHandler();
       const result = await executeJob(job, {
@@ -101,6 +103,8 @@ export async function runBenchmarks(params: {
       });
       results.push(result);
       completed++;
+      const status = result.result.error ? `failed: ${result.result.error}` : "done";
+      console.log(`[benchmark] ${completed}/${total} ${label} — ${status}`);
       params.onProgress?.(completed, total);
     })();
 

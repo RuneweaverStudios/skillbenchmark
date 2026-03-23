@@ -81,7 +81,7 @@ export async function generateScenarios(params: {
     .replace("{name}", params.skillName)
     .replace("{description}", params.skillDescription);
 
-  const model = params.generationModel ?? "nvidia/nemotron-3-super-120b-a12b:free";
+  const model = params.generationModel ?? "z-ai/glm-4.7-flash:free";
 
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;

@@ -131,7 +131,7 @@ async function judgeQuality(
   skillOutput: string
 ): Promise<number> {
   const response = await client.chatCompletion({
-    model: "nvidia/nemotron-3-super-120b-a12b:free",
+    model: "z-ai/glm-4.7-flash:free",
     messages: [
       {
         role: "user",

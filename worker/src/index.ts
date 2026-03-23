@@ -135,7 +135,7 @@ export async function processBenchmarkJob(
         success_criteria: s.success_criteria,
         expected_tool_calls: s.expected_tool_calls,
         max_turns: s.max_turns,
-        generation_model: "nvidia/nemotron-3-super-120b-a12b:free",
+        generation_model: "z-ai/glm-4.7-flash:free",
       }))
     );
     await callbacks.emitActivityEvent(skillId, { event_type: 'info', stage: 'generating_scenarios', message: 'Scenarios saved, preparing benchmark matrix...' });
@@ -161,14 +161,12 @@ export async function processBenchmarkJob(
       concurrency: 4,
       onProgress: async (completed, total) => {
         console.log(`[${skillId}] Benchmark progress: ${completed}/${total}`);
-        if (completed === 1 || completed === total || completed % 5 === 0) {
-          await callbacks.emitActivityEvent(skillId, {
-            event_type: 'progress',
-            stage: 'benchmarking',
-            message: `Benchmark execution ${completed}/${total} complete`,
-            metadata: { completed, total },
-          });
-        }
+        await callbacks.emitActivityEvent(skillId, {
+          event_type: 'progress',
+          stage: 'benchmarking',
+          message: `Execution ${completed}/${total} complete`,
+          metadata: { completed, total },
+        });
       },
     });
 
