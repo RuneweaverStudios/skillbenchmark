@@ -56,8 +56,9 @@ Generate exactly 4 scenarios (one per category). For each, produce a JSON object
 
 IMPORTANT GUIDELINES:
 - Scenarios MUST be relevant to what the skill actually does
-- For token-efficiency skills: include tools that return large outputs (50KB+), recursive session dumps, large JSON
-- For routing/orchestration skills: include tasks requiring model/task routing
+- ALWAYS include a "Bash" tool (name: "bash", params: {"command": string}) in EVERY scenario — this lets skills that route through CLI demonstrate their value
+- Also include domain-specific tools with names like "mcp__server__tool" or "query_database" or "search_docs" — these simulate the native/verbose alternatives
+- For token-efficiency / CLI-routing skills: the agent WITHOUT the skill will use verbose native tools; WITH the skill it should prefer the bash tool for compact output
 - For code generation skills: include code quality and completion scenarios
 - Tools should return realistic data sizes, not toy examples
 - The stress test should have 20+ expected tool calls

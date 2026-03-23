@@ -198,33 +198,98 @@ function createLoop(
 
 /**
  * Create a simulated tool handler that returns realistic output.
- * Tool outputs grow progressively to simulate real-world context accumulation.
+ *
+ * Output size varies by tool type to simulate real-world behavior:
+ * - Native MCP tools (mcp__*, query, search, fetch, read): large verbose JSON
+ * - CLI/bash tools (bash, exec, run, shell, command): compact output
+ * - Other tools: medium output
+ *
+ * This is critical for skills that route tool calls through compact CLIs
+ * (e.g., dietmcp) — their value shows up as smaller tool results.
  */
 function createToolHandler(): ToolHandler {
   let callCount = 0;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     callCount++;
+    const lowerName = name.toLowerCase();
+    const argsStr = JSON.stringify(args).toLowerCase();
 
-    // Generate progressively larger outputs to test context management
-    const baseSize = 500;
-    const growthFactor = Math.min(callCount * 0.5, 10);
+    // Detect tool type by name and arguments
+    const isCompactTool = isCompactToolCall(lowerName, argsStr);
+    const isVerboseTool = isVerboseToolCall(lowerName, argsStr);
+
+    // Compact tools: ~200-500 chars (CLI output, compressed results)
+    // Verbose tools: ~2000-8000 chars (full MCP JSON, raw API responses)
+    // Default tools: ~500-2000 chars
+    let baseSize: number;
+    if (isCompactTool) {
+      baseSize = 200;
+    } else if (isVerboseTool) {
+      baseSize = 2000;
+    } else {
+      baseSize = 500;
+    }
+
+    // Progressive growth to simulate context accumulation
+    const growthFactor = Math.min(callCount * 0.3, 5);
     const targetSize = Math.floor(baseSize * (1 + growthFactor));
+
+    if (isCompactTool) {
+      return generateCompactOutput(name, args, callCount, targetSize);
+    }
 
     const result: Record<string, unknown> = {
       tool: name,
       call_number: callCount,
       args,
       timestamp: new Date().toISOString(),
-      data: generateRealisticData(name, targetSize),
+      data: generateVerboseData(name, targetSize),
     };
 
-    return JSON.stringify(result, null, 2);
+    return JSON.stringify(result, null, isVerboseTool ? 2 : 0);
   };
 }
 
-function generateRealisticData(toolName: string, targetSize: number): unknown {
-  // Generate data that resembles real tool output
+/** CLI/bash tools, exec commands, compact routers */
+function isCompactToolCall(name: string, argsStr: string): boolean {
+  // Direct CLI tool names
+  if (/\b(bash|shell|exec|run_command|terminal|command)\b/.test(name)) return true;
+  // Tool args that suggest CLI routing (e.g., "dietmcp exec", "npx", "curl")
+  if (/\b(dietmcp|npx|curl|cli|pipe)\b/.test(argsStr)) return true;
+  return false;
+}
+
+/** Native MCP tools, large data fetchers, API responses */
+function isVerboseToolCall(name: string, _argsStr: string): boolean {
+  // Native MCP tool naming convention
+  if (name.startsWith("mcp__") || name.startsWith("mcp_")) return true;
+  // Common verbose tool patterns
+  if (/\b(query|search|fetch|read_file|get_contents|list_|find_|api_call)\b/.test(name)) return true;
+  return false;
+}
+
+/** Compact CLI-style output */
+function generateCompactOutput(
+  name: string,
+  args: Record<string, unknown>,
+  callNumber: number,
+  targetSize: number
+): string {
+  // Simulate concise CLI output (like dietmcp exec produces)
+  const lines: string[] = [];
+  const lineCount = Math.max(2, Math.floor(targetSize / 80));
+
+  lines.push(`$ ${name} ${Object.values(args).join(" ")}`.slice(0, 120));
+  for (let i = 0; i < lineCount - 1; i++) {
+    lines.push(`  result_${i}: item-${callNumber}-${i} [ok]`);
+  }
+
+  return lines.join("\n");
+}
+
+/** Verbose MCP/API-style JSON output */
+function generateVerboseData(toolName: string, targetSize: number): unknown {
   const items: Record<string, unknown>[] = [];
   const itemCount = Math.max(1, Math.floor(targetSize / 200));
 
@@ -232,12 +297,16 @@ function generateRealisticData(toolName: string, targetSize: number): unknown {
     items.push({
       id: `item-${i}`,
       name: `${toolName}-result-${i}`,
+      type: "resource",
       status: i % 3 === 0 ? "error" : "ok",
       details: `Result from ${toolName} call, item ${i}. `.repeat(3),
+      content: `Full content block ${i} with detailed information about the resource returned by ${toolName}.`.repeat(2),
       metadata: {
         timestamp: new Date().toISOString(),
         source: toolName,
         index: i,
+        schema_version: "1.0",
+        provider: toolName.split("_")[0],
       },
     });
   }
