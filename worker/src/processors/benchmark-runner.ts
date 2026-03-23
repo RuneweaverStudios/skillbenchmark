@@ -6,7 +6,6 @@
  * with real tool execution, and writes results to output.json.
  */
 
-import path from "node:path";
 import {
   runBenchmarkContainer,
   ensureImageBuilt,
@@ -21,10 +20,6 @@ const BENCHMARK_MODELS = [
 ];
 
 const DOCKER_IMAGE = "skillbench-runner:latest";
-const DOCKERFILE_PATH = path.resolve(
-  import.meta.dirname ?? new URL(".", import.meta.url).pathname,
-  "../docker/Dockerfile"
-);
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -73,7 +68,7 @@ export async function runBenchmarks(params: {
   } = params;
 
   // Ensure the Docker image is built before starting benchmarks
-  await ensureImageBuilt(DOCKERFILE_PATH, DOCKER_IMAGE);
+  await ensureImageBuilt("", DOCKER_IMAGE);
 
   // Build execution matrix: scenario × model × with/without skill
   const jobs: ExecutionJob[] = [];

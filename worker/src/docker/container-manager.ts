@@ -1,14 +1,18 @@
 /**
- * Docker container manager for benchmark execution.
- * Spins up isolated containers with config.json, waits for results,
- * and parses output.json into typed ContainerResult.
+ * Benchmark execution manager.
+ *
+ * Two modes:
+ * 1. Docker: Runs agent-runner.js in an isolated container (requires Docker daemon)
+ * 2. Subprocess: Runs agent-runner.js as a child process (fallback when Docker unavailable)
+ *
+ * Both modes write config.json → run agent-runner.js → read output.json.
  */
 
-import Docker from "dockerode";
+import { execSync, fork } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type { ToolDef, TurnMetric } from "../agent-loops/types.js";
+import type { TurnMetric } from "../agent-loops/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,7 +23,7 @@ export interface ContainerConfig {
   readonly model: string;
   readonly systemPrompt: string;
   readonly userPrompt: string;
-  readonly tools: readonly ToolDef[];
+  readonly tools: readonly { name: string; description: string; parameters: Record<string, unknown> }[];
   readonly skillContent: string | null;
   readonly withSkill: boolean;
   readonly maxTurns: number;
@@ -48,19 +52,12 @@ export interface ContainerResult {
 // Internals
 // ---------------------------------------------------------------------------
 
-// Respect DOCKER_HOST env (e.g., Colima uses unix:///Users/.../.colima/default/docker.sock)
-function createDockerClient(): Docker {
-  const host = process.env.DOCKER_HOST;
-  if (host?.startsWith("unix://")) {
-    return new Docker({ socketPath: host.replace("unix://", "") });
-  }
-  return new Docker();
-}
-
-const docker = createDockerClient();
-
-/** 30-second grace period added on top of config.timeoutMs for container wait. */
 const TIMEOUT_BUFFER_MS = 30_000;
+
+const AGENT_RUNNER_PATH = path.resolve(
+  import.meta.dirname ?? new URL(".", import.meta.url).pathname,
+  "agent-runner.js"
+);
 
 function createErrorResult(message: string): ContainerResult {
   return Object.freeze({
@@ -81,14 +78,9 @@ function createErrorResult(message: string): ContainerResult {
   });
 }
 
-/**
- * Parse raw JSON from output.json into a validated ContainerResult.
- * Returns an error result if the data is malformed.
- */
 function parseOutputJson(raw: string): ContainerResult {
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
-
     return Object.freeze({
       taskCompleted: Boolean(data.taskCompleted),
       totalTurns: Number(data.totalTurns) || 0,
@@ -101,9 +93,7 @@ function parseOutputJson(raw: string): ContainerResult {
       peakContextTokens: Number(data.peakContextTokens) || 0,
       avgTurnLatencyMs: Number(data.avgTurnLatencyMs) || 0,
       p95TurnLatencyMs: Number(data.p95TurnLatencyMs) || 0,
-      turnMetrics: Array.isArray(data.turnMetrics)
-        ? (data.turnMetrics as readonly TurnMetric[])
-        : [],
+      turnMetrics: Array.isArray(data.turnMetrics) ? (data.turnMetrics as readonly TurnMetric[]) : [],
       finalAssistantMessage: String(data.finalAssistantMessage ?? ""),
       error: data.error != null ? String(data.error) : null,
     });
@@ -112,125 +102,25 @@ function parseOutputJson(raw: string): ContainerResult {
   }
 }
 
-/**
- * Attempt to read and parse output.json from the temp directory.
- * Returns null if the file does not exist or cannot be read.
- */
-async function tryReadOutput(tempDir: string): Promise<ContainerResult | null> {
-  const outputPath = path.join(tempDir, "output.json");
+async function tryReadOutput(dir: string): Promise<ContainerResult | null> {
   try {
-    const raw = await fs.readFile(outputPath, "utf-8");
+    const raw = await fs.readFile(path.join(dir, "output.json"), "utf-8");
     return parseOutputJson(raw);
   } catch {
     return null;
   }
 }
 
-/**
- * Remove a Docker container, swallowing errors if it no longer exists.
- */
-async function removeContainer(container: Docker.Container): Promise<void> {
-  try {
-    await container.remove({ force: true });
-  } catch {
-    // Container may already be removed; safe to ignore.
-  }
-}
-
-/**
- * Recursively remove a temp directory, swallowing errors.
- */
-async function removeTempDir(dirPath: string): Promise<void> {
-  try {
-    await fs.rm(dirPath, { recursive: true, force: true });
-  } catch {
-    // Best-effort cleanup.
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Build a Docker image from a Dockerfile if it does not already exist locally.
- * Streams build output to stdout.
- */
-export async function ensureImageBuilt(
-  dockerfilePath: string,
-  tag: string
-): Promise<void> {
-  // Check if the image already exists
-  try {
-    await docker.getImage(tag).inspect();
-    console.log(`[container-manager] Image "${tag}" already exists, skipping build.`);
-    return;
-  } catch {
-    // Image not found — proceed to build.
-  }
-
-  const contextDir = path.dirname(dockerfilePath);
-  const dockerfile = path.basename(dockerfilePath);
-
-  console.log(`[container-manager] Building image "${tag}" from ${dockerfilePath}...`);
-
-  // Include all files in the docker context directory
-  const contextFiles = await fs.readdir(contextDir);
-  const stream = await docker.buildImage(
-    {
-      context: contextDir,
-      src: contextFiles,
-    },
-    { t: tag, dockerfile }
-  );
-
-  // Stream build output to console
-  await new Promise<void>((resolve, reject) => {
-    docker.modem.followProgress(
-      stream,
-      (err: Error | null) => {
-        if (err) {
-          reject(new Error(`Docker build failed for "${tag}": ${err.message}`));
-        } else {
-          console.log(`[container-manager] Image "${tag}" built successfully.`);
-          resolve();
-        }
-      },
-      (event: { stream?: string; error?: string }) => {
-        if (event.stream) {
-          process.stdout.write(event.stream);
-        }
-        if (event.error) {
-          console.error(`[container-manager] Build error: ${event.error}`);
-        }
-      }
-    );
-  });
-}
-
-/**
- * Run a benchmark inside a Docker container.
- *
- * 1. Creates a temp directory and writes config.json into it.
- * 2. Starts a container with the temp dir bind-mounted at /benchmark.
- * 3. Waits for the container to exit (with timeout).
- * 4. Reads output.json from the temp dir and returns parsed results.
- * 5. Cleans up the container and temp dir.
- */
-export async function runBenchmarkContainer(
-  config: ContainerConfig
-): Promise<ContainerResult> {
-  // Use home dir for temp — os.tmpdir() returns /var/folders on macOS
-  // which Docker (Colima/Docker Desktop) often can't mount.
-  // On Linux /tmp works fine but $HOME/.cache is universally safe.
-  const tmpBase = path.join(os.homedir(), ".cache", "skillbench");
+async function makeTempDir(): Promise<string> {
+  const tmpBase = path.join(os.tmpdir(), "skillbench");
   await fs.mkdir(tmpBase, { recursive: true });
-  const tempDir = await fs.mkdtemp(path.join(tmpBase, "run-"));
-  let container: Docker.Container | null = null;
+  return fs.mkdtemp(path.join(tmpBase, "run-"));
+}
 
-  try {
-    // ---- Write config.json ------------------------------------------------
-    const configPayload = {
+async function writeConfig(dir: string, config: ContainerConfig): Promise<void> {
+  await fs.writeFile(
+    path.join(dir, "config.json"),
+    JSON.stringify({
       model: config.model,
       systemPrompt: config.systemPrompt,
       userPrompt: config.userPrompt,
@@ -240,100 +130,187 @@ export async function runBenchmarkContainer(
       maxTurns: config.maxTurns,
       timeoutMs: config.timeoutMs,
       openrouterApiKey: config.openrouterApiKey,
-    };
+    }, null, 2),
+    "utf-8"
+  );
+}
 
-    await fs.writeFile(
-      path.join(tempDir, "config.json"),
-      JSON.stringify(configPayload, null, 2),
-      "utf-8"
+async function cleanup(dir: string): Promise<void> {
+  try { await fs.rm(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+}
+
+// ---------------------------------------------------------------------------
+// Docker detection
+// ---------------------------------------------------------------------------
+
+let _dockerAvailable: boolean | null = null;
+
+function isDockerAvailable(): boolean {
+  if (_dockerAvailable !== null) return _dockerAvailable;
+  try {
+    // Check if we can actually connect to the Docker daemon
+    // DOCKER_HOST must be set for non-default sockets (e.g. Colima)
+    const host = process.env.DOCKER_HOST;
+    if (host?.startsWith("unix://")) {
+      const socketPath = host.replace("unix://", "");
+      const stat = require("node:fs").statSync(socketPath);
+      if (!stat) throw new Error("Socket not found");
+    } else {
+      // Default socket
+      const stat = require("node:fs").statSync("/var/run/docker.sock");
+      if (!stat) throw new Error("Socket not found");
+    }
+    execSync("docker info", { stdio: "pipe", timeout: 5000 });
+    _dockerAvailable = true;
+    console.log("[runner] Docker available — using container mode");
+  } catch {
+    _dockerAvailable = false;
+    console.log("[runner] Docker not available — using subprocess mode");
+  }
+  return _dockerAvailable;
+}
+
+// ---------------------------------------------------------------------------
+// Docker mode
+// ---------------------------------------------------------------------------
+
+async function runWithDocker(config: ContainerConfig, tempDir: string): Promise<ContainerResult> {
+  const Docker = (await import("dockerode")).default;
+
+  const host = process.env.DOCKER_HOST;
+  const docker = host?.startsWith("unix://")
+    ? new Docker({ socketPath: host.replace("unix://", "") })
+    : new Docker();
+
+  // Ensure image exists
+  try {
+    await docker.getImage(config.image).inspect();
+  } catch {
+    const contextDir = path.dirname(AGENT_RUNNER_PATH);
+    const contextFiles = await fs.readdir(contextDir);
+    console.log(`[runner] Building Docker image "${config.image}"...`);
+    const stream = await docker.buildImage(
+      { context: contextDir, src: contextFiles },
+      { t: config.image, dockerfile: "Dockerfile" }
     );
-
-    // ---- Create container -------------------------------------------------
-    container = await docker.createContainer({
-      Image: config.image,
-      HostConfig: {
-        Binds: [`${tempDir}:/benchmark:rw`],
-        NetworkMode: "bridge",
-        Memory: 512 * 1024 * 1024, // 512 MB
-        NanoCpus: 1_000_000_000,   // 1 CPU core
-      },
+    await new Promise<void>((resolve, reject) => {
+      docker.modem.followProgress(
+        stream,
+        (err: Error | null) => err ? reject(err) : resolve(),
+        (ev: { stream?: string }) => { if (ev.stream) process.stdout.write(ev.stream); }
+      );
     });
+  }
 
-    // ---- Start container --------------------------------------------------
+  const container = await docker.createContainer({
+    Image: config.image,
+    HostConfig: {
+      Binds: [`${tempDir}:/benchmark:rw`],
+      NetworkMode: "bridge",
+      Memory: 512 * 1024 * 1024,
+      NanoCpus: 1_000_000_000,
+    },
+  });
+
+  try {
     await container.start();
 
-    // ---- Wait for exit (with timeout) -------------------------------------
-    const waitTimeoutMs = config.timeoutMs + TIMEOUT_BUFFER_MS;
-    const exitResult = await Promise.race([
+    const waitTimeout = config.timeoutMs + TIMEOUT_BUFFER_MS;
+    const exit = await Promise.race([
       container.wait() as Promise<{ StatusCode: number }>,
-      new Promise<"timeout">((resolve) =>
-        setTimeout(() => resolve("timeout"), waitTimeoutMs)
-      ),
+      new Promise<"timeout">(r => setTimeout(() => r("timeout"), waitTimeout)),
     ]);
 
-    if (exitResult === "timeout") {
-      console.error(
-        `[container-manager] Container timed out after ${waitTimeoutMs}ms, killing.`
-      );
-      try {
-        await container.kill();
-      } catch {
-        // Container may have already exited.
-      }
-
-      // Still try to read partial output
+    if (exit === "timeout") {
+      try { await container.kill(); } catch { /* already exited */ }
       const partial = await tryReadOutput(tempDir);
-      if (partial) {
-        return Object.freeze({
-          ...partial,
-          error: partial.error ?? "Container timed out",
-        });
-      }
-      return createErrorResult(
-        `Container timed out after ${waitTimeoutMs}ms`
-      );
+      return partial
+        ? Object.freeze({ ...partial, error: partial.error ?? "Container timed out" })
+        : createErrorResult(`Container timed out after ${waitTimeout}ms`);
     }
 
-    // ---- Read output.json -------------------------------------------------
     const result = await tryReadOutput(tempDir);
-
     if (result) {
-      // If the container exited non-zero but we still got output, annotate the error
-      if (exitResult.StatusCode !== 0 && result.error == null) {
-        return Object.freeze({
-          ...result,
-          error: `Container exited with code ${exitResult.StatusCode}`,
-        });
+      if (exit.StatusCode !== 0 && result.error == null) {
+        return Object.freeze({ ...result, error: `Container exited with code ${exit.StatusCode}` });
       }
       return result;
     }
+    return createErrorResult(`Container exited with code ${exit.StatusCode}, no output.json`);
+  } finally {
+    try { await container.remove({ force: true }); } catch { /* ok */ }
+  }
+}
 
-    // No output.json found
-    return createErrorResult(
-      exitResult.StatusCode === 0
-        ? "Container exited successfully but output.json is missing"
-        : `Container exited with code ${exitResult.StatusCode} and no output.json`
-    );
+// ---------------------------------------------------------------------------
+// Subprocess mode (no Docker required)
+// ---------------------------------------------------------------------------
+
+async function runWithSubprocess(config: ContainerConfig, tempDir: string): Promise<ContainerResult> {
+  // The agent-runner.js reads from /benchmark/config.json and writes /benchmark/output.json.
+  // In subprocess mode, we override these paths via env vars or symlink.
+  // Simplest: copy agent-runner.js to temp dir and patch the paths.
+  const runnerSrc = await fs.readFile(AGENT_RUNNER_PATH, "utf-8");
+  const patched = runnerSrc
+    .replace(/\/benchmark\/config\.json/g, path.join(tempDir, "config.json"))
+    .replace(/\/benchmark\/output\.json/g, path.join(tempDir, "output.json"));
+  const patchedPath = path.join(tempDir, "agent-runner.js");
+  await fs.writeFile(patchedPath, patched, "utf-8");
+
+  return new Promise<ContainerResult>((resolve) => {
+    const child = fork(patchedPath, [], {
+      stdio: "pipe",
+      timeout: config.timeoutMs + TIMEOUT_BUFFER_MS,
+      env: { ...process.env, NODE_NO_WARNINGS: "1" },
+    });
+
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+    }, config.timeoutMs + TIMEOUT_BUFFER_MS);
+
+    child.on("exit", async () => {
+      clearTimeout(timer);
+      const result = await tryReadOutput(tempDir);
+      if (result) {
+        resolve(killed ? Object.freeze({ ...result, error: result.error ?? "Process timed out" }) : result);
+      } else {
+        resolve(createErrorResult(killed ? "Process timed out, no output" : "Process exited with no output.json"));
+      }
+    });
+
+    child.on("error", async (err) => {
+      clearTimeout(timer);
+      const result = await tryReadOutput(tempDir);
+      resolve(result ?? createErrorResult(err.message));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function ensureImageBuilt(_dockerfilePath: string, _tag: string): Promise<void> {
+  // Image is built on-demand in runWithDocker. No-op here.
+}
+
+export async function runBenchmarkContainer(config: ContainerConfig): Promise<ContainerResult> {
+  const tempDir = await makeTempDir();
+  try {
+    await writeConfig(tempDir, config);
+    if (isDockerAvailable()) {
+      return await runWithDocker(config, tempDir);
+    }
+    return await runWithSubprocess(config, tempDir);
   } catch (err) {
-    // Attempt to read any partial output before returning the error
     const partial = await tryReadOutput(tempDir);
     if (partial) {
-      return Object.freeze({
-        ...partial,
-        error:
-          partial.error ??
-          (err instanceof Error ? err.message : String(err)),
-      });
+      return Object.freeze({ ...partial, error: partial.error ?? (err instanceof Error ? err.message : String(err)) });
     }
-
-    return createErrorResult(
-      err instanceof Error ? err.message : String(err)
-    );
+    return createErrorResult(err instanceof Error ? err.message : String(err));
   } finally {
-    // ---- Cleanup ----------------------------------------------------------
-    if (container) {
-      await removeContainer(container);
-    }
-    await removeTempDir(tempDir);
+    await cleanup(tempDir);
   }
 }
