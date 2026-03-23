@@ -47,7 +47,7 @@ export const BENCHMARK_LEVELS = {
     description: "Quick test with 1 free model, 2 scenarios",
     scenarios: 2,
     models: [
-      { id: "z-ai/glm-4.7-flash", name: "GLM 4.7 Flash", tier: "free" as const, supportsCliLoop: false },
+      { id: "z-ai/glm-4.7-flash", name: "GLM 4.7 Flash", tier: "budget" as const, supportsCliLoop: false },
     ],
     agentLoops: ["hermes"] as const,
     cost: "Free",
@@ -58,7 +58,7 @@ export const BENCHMARK_LEVELS = {
     description: "Full test with 2 models, 4 scenarios, 2 agent loops",
     scenarios: 4,
     models: [
-      { id: "z-ai/glm-4.7-flash", name: "GLM 4.7 Flash", tier: "free" as const, supportsCliLoop: false },
+      { id: "z-ai/glm-4.7-flash", name: "GLM 4.7 Flash", tier: "budget" as const, supportsCliLoop: false },
       { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", tier: "budget" as const, supportsCliLoop: false },
     ],
     agentLoops: ["hermes", "claude_api"] as const,
