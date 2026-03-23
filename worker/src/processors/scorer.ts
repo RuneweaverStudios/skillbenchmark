@@ -131,7 +131,7 @@ async function judgeQuality(
   skillOutput: string
 ): Promise<number> {
   const response = await client.chatCompletion({
-    model: "z-ai/glm-4.7-flash:free",
+    model: "z-ai/glm-4.7-flash",
     messages: [
       {
         role: "user",

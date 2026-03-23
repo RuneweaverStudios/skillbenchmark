@@ -81,7 +81,7 @@ export async function generateScenarios(params: {
     .replace("{name}", params.skillName)
     .replace("{description}", params.skillDescription);
 
-  const model = params.generationModel ?? "z-ai/glm-4.7-flash:free";
+  const model = params.generationModel ?? "z-ai/glm-4.7-flash";
 
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;

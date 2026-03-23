@@ -135,7 +135,7 @@ export async function processBenchmarkJob(
         success_criteria: s.success_criteria,
         expected_tool_calls: s.expected_tool_calls,
         max_turns: s.max_turns,
-        generation_model: "z-ai/glm-4.7-flash:free",
+        generation_model: "z-ai/glm-4.7-flash",
       }))
     );
     await callbacks.emitActivityEvent(skillId, { event_type: 'info', stage: 'generating_scenarios', message: 'Scenarios saved, preparing benchmark matrix...' });

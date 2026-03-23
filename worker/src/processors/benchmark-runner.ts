@@ -13,7 +13,7 @@ import type { AgentLoop, AgentLoopConfig, AgentLoopResult, ToolHandler } from ".
 // Free tier: Nemotron 70B (free on OpenRouter)
 // Pro tier: Claude Opus, Codex, MiniMax, Kimi
 const BENCHMARK_MODELS = [
-  { id: "z-ai/glm-4.7-flash:free", supportsCliLoop: false },
+  { id: "z-ai/glm-4.7-flash", supportsCliLoop: false },
 ];
 
 export interface BenchmarkScenario {
