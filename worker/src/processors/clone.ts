@@ -105,25 +105,29 @@ function findSkillFile(dir: string, depth = 0): SkillFileMatch | null {
   try {
     const entries = readdirSync(dir);
 
-    // Check current directory first
+    // SKILL.md takes priority over _meta.json (Claude Code > OpenClaw)
+    let openclawMatch: SkillFileMatch | null = null;
+
     for (const entry of entries) {
       const fullPath = join(dir, entry);
       if (!statSync(fullPath).isFile()) continue;
 
-      if (entry === "_meta.json") {
+      if (entry.toLowerCase() === "skill.md") {
+        return { path: fullPath, format: "claude_code" };
+      }
+
+      if (entry === "_meta.json" && !openclawMatch) {
         try {
           const content = readFileSync(fullPath, "utf8");
           const parsed = JSON.parse(content);
           if (parsed.schema?.startsWith("openclaw.skill")) {
-            return { path: fullPath, format: "openclaw" };
+            openclawMatch = { path: fullPath, format: "openclaw" };
           }
         } catch { /* not valid openclaw */ }
       }
-
-      if (entry.toLowerCase() === "skill.md") {
-        return { path: fullPath, format: "claude_code" };
-      }
     }
+
+    if (openclawMatch) return openclawMatch;
 
     // Recurse into subdirectories (include .claude/ but skip .git/)
     for (const entry of entries) {

@@ -63,11 +63,9 @@ export async function runBenchmarks(params: {
 
   for (const scenario of scenarios) {
     for (const model of BENCHMARK_MODELS) {
-      // Hermes and Claude API loops for all models
-      for (const loopType of ["hermes", "claude_api"] as const) {
-        for (const withSkill of [true, false]) {
-          jobs.push({ scenario, model: model.id, loopType, withSkill });
-        }
+      // Hermes loop for all models (OpenAI-compatible tool calling)
+      for (const withSkill of [true, false]) {
+        jobs.push({ scenario, model: model.id, loopType: "hermes", withSkill });
       }
 
       // Claude CLI only for models that support it
@@ -88,14 +86,13 @@ export async function runBenchmarks(params: {
   let completed = 0;
   const results: ExecutionResult[] = [];
 
-  // Simulated tool handler — returns realistic but deterministic output
-  const toolHandler = createToolHandler();
-
   // Execute with concurrency limit
   const executing = new Set<Promise<void>>();
 
   for (const job of jobs) {
     const promise = (async () => {
+      // Each job gets its own tool handler so callCount is isolated
+      const toolHandler = createToolHandler();
       const result = await executeJob(job, {
         skillContent,
         openrouterApiKey,

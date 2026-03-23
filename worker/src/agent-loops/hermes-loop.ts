@@ -105,7 +105,8 @@ export class HermesLoop implements AgentLoop {
 
           for (const toolCall of choice.message.tool_calls) {
             totalToolCalls++;
-            const args = JSON.parse(toolCall.function.arguments);
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(toolCall.function.arguments); } catch { /* malformed args */ }
             const rawResult = await this.toolHandler(
               toolCall.function.name,
               args

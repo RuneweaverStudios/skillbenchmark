@@ -83,6 +83,26 @@ export async function generateScenarios(params: {
 
   const model = params.generationModel ?? "nvidia/nemotron-3-super-120b-a12b:free";
 
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await attemptGeneration(client, model, prompt);
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      console.warn(`Scenario generation attempt ${attempt + 1} failed: ${lastError.message}`);
+    }
+  }
+
+  throw lastError ?? new Error("Scenario generation failed after retries");
+}
+
+async function attemptGeneration(
+  client: OpenRouterClient,
+  model: string,
+  prompt: string,
+): Promise<readonly GeneratedScenario[]> {
   const response = await client.chatCompletion({
     model,
     messages: [{ role: "user", content: prompt }],
