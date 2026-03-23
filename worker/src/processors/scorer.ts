@@ -55,7 +55,27 @@ const WEIGHT_PROFILES: Record<SkillCategory, {
   },
 };
 
-function detectCategory(results: readonly ExecutionResult[]): SkillCategory {
+function detectCategory(
+  results: readonly ExecutionResult[],
+  metadata?: { description?: string; tags?: readonly string[]; name?: string }
+): SkillCategory {
+  // Primary signal: skill metadata (description, tags, name)
+  if (metadata) {
+    const text = [
+      metadata.description ?? "",
+      metadata.name ?? "",
+      ...(metadata.tags ?? []),
+    ].join(" ").toLowerCase();
+
+    if (/context.*(reduc|optim|compress|slim|shrink|bloat|window)|token.*(sav|reduc|effic)|mcp.*cli|cli.*bridge|tool.*rout/.test(text)) {
+      return "context_optimization";
+    }
+    if (/code.*(gen|review|quality|refactor)|lint|format|test.*driv/.test(text)) {
+      return "code_generation";
+    }
+  }
+
+  // Fallback: runtime heuristic
   // Heuristic: look at the tools used in with-skill runs
   const skillRuns = results.filter((r) => r.withSkill);
   const allToolNames = new Set<string>();
@@ -101,12 +121,13 @@ function detectCategory(results: readonly ExecutionResult[]): SkillCategory {
 
 export async function computeScores(
   results: readonly ExecutionResult[],
-  openrouterApiKey: string
+  openrouterApiKey: string,
+  skillMetadata?: { description?: string; tags?: readonly string[]; name?: string }
 ): Promise<SkillScores> {
   const withSkill = results.filter((r) => r.withSkill);
   const baseline = results.filter((r) => !r.withSkill);
 
-  const category = detectCategory(results);
+  const category = detectCategory(results, skillMetadata);
   const weights = WEIGHT_PROFILES[category];
   console.log(`[scorer] Detected skill category: ${category}`);
   console.log(`[scorer] Weights: token=${weights.tokenEfficiency} task=${weights.taskCompletion} quality=${weights.qualityPreservation} latency=${weights.latencyImpact}`);
@@ -147,25 +168,20 @@ export async function computeScores(
 
 /**
  * For context-optimization skills: measure CONTEXT OVERHEAD reduction.
- * Compares initial context tokens (system prompt + tool definitions)
- * and per-turn prompt token growth rate. This isolates the schema/tool
- * overhead that these skills actually reduce.
+ *
+ * Uses per-turn prompt tokens and total tokens — NOT initialContextTokens
+ * (which includes the skill content in the system prompt and would always
+ * penalize skills that inject instructions).
+ *
+ * Also uses peak context growth: a skill that keeps context flat while
+ * baseline context balloons is demonstrating real value.
  */
 function scoreContextEfficiency(
   withSkill: readonly ExecutionResult[],
   baseline: readonly ExecutionResult[]
 ): number {
-  // Measure 1: Initial context overhead (tool schema bloat)
-  const avgInitWith = mean(
-    withSkill.filter((r) => r.result.initialContextTokens > 0)
-      .map((r) => r.result.initialContextTokens)
-  );
-  const avgInitBase = mean(
-    baseline.filter((r) => r.result.initialContextTokens > 0)
-      .map((r) => r.result.initialContextTokens)
-  );
-
-  // Measure 2: Per-turn prompt token efficiency (tokens per turn)
+  // Measure 1: Per-turn prompt token efficiency (avg prompt tokens per turn)
+  // This captures whether tool results are smaller per-turn with the skill
   const avgPerTurnWith = mean(
     withSkill.filter((r) => r.result.totalTurns > 0)
       .map((r) => r.result.totalPromptTokens / r.result.totalTurns)
@@ -175,7 +191,7 @@ function scoreContextEfficiency(
       .map((r) => r.result.totalPromptTokens / r.result.totalTurns)
   );
 
-  // Measure 3: Total tokens (still counts, but less weight)
+  // Measure 2: Total tokens consumed
   const avgTotalWith = mean(
     withSkill.filter((r) => totalTokens(r) > 0).map(totalTokens)
   );
@@ -183,15 +199,24 @@ function scoreContextEfficiency(
     baseline.filter((r) => totalTokens(r) > 0).map(totalTokens)
   );
 
-  if (avgInitBase === 0 && avgPerTurnBase === 0) return 50;
+  // Measure 3: Peak context growth (skill should keep context flatter)
+  const avgPeakWith = mean(
+    withSkill.filter((r) => r.result.peakContextTokens > 0)
+      .map((r) => r.result.peakContextTokens)
+  );
+  const avgPeakBase = mean(
+    baseline.filter((r) => r.result.peakContextTokens > 0)
+      .map((r) => r.result.peakContextTokens)
+  );
 
-  // Score each measure
-  const initReduction = avgInitBase > 0 ? ((avgInitBase - avgInitWith) / avgInitBase) * 100 : 0;
+  if (avgPerTurnBase === 0 && avgTotalBase === 0) return 50;
+
   const perTurnReduction = avgPerTurnBase > 0 ? ((avgPerTurnBase - avgPerTurnWith) / avgPerTurnBase) * 100 : 0;
   const totalReduction = avgTotalBase > 0 ? ((avgTotalBase - avgTotalWith) / avgTotalBase) * 100 : 0;
+  const peakReduction = avgPeakBase > 0 ? ((avgPeakBase - avgPeakWith) / avgPeakBase) * 100 : 0;
 
-  // Weighted combination: per-turn efficiency matters most for context optimization
-  const combinedReduction = perTurnReduction * 0.5 + totalReduction * 0.3 + initReduction * 0.2;
+  // Weighted: total tokens (most tangible) > peak context > per-turn
+  const combinedReduction = totalReduction * 0.4 + peakReduction * 0.35 + perTurnReduction * 0.25;
 
   if (combinedReduction < 0) return Math.max(0, 50 + combinedReduction * 0.5);
   return Math.min(100, 50 + combinedReduction * 0.556);

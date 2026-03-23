@@ -29,6 +29,11 @@ export interface ContainerConfig {
   readonly maxTurns: number;
   readonly timeoutMs: number;
   readonly openrouterApiKey: string;
+  readonly successCriteria?: {
+    readonly required_tool_calls?: number;
+    readonly expected_output_contains?: readonly string[];
+    readonly max_context_growth_factor?: number;
+  } | null;
 }
 
 export interface ContainerResult {
@@ -130,6 +135,7 @@ async function writeConfig(dir: string, config: ContainerConfig): Promise<void> 
       maxTurns: config.maxTurns,
       timeoutMs: config.timeoutMs,
       openrouterApiKey: config.openrouterApiKey,
+      successCriteria: config.successCriteria ?? null,
     }, null, 2),
     "utf-8"
   );

@@ -35,6 +35,11 @@ export interface BenchmarkScenario {
     parameters: Record<string, unknown>;
   }[];
   readonly maxTurns: number;
+  readonly successCriteria?: {
+    readonly required_tool_calls?: number;
+    readonly expected_output_contains?: readonly string[];
+    readonly max_context_growth_factor?: number;
+  };
 }
 
 export interface ExecutionResult {
@@ -111,6 +116,7 @@ export async function runBenchmarks(params: {
         maxTurns: job.scenario.maxTurns,
         timeoutMs,
         openrouterApiKey,
+        successCriteria: job.scenario.successCriteria ?? null,
       });
 
       const agentResult = containerResultToAgentResult(containerResult);

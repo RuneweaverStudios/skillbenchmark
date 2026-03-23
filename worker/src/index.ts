@@ -186,7 +186,11 @@ export async function processBenchmarkJob(
     // Stage 4: Score
     await callbacks.updateSkillStatus(skillId, "scoring");
     await callbacks.emitActivityEvent(skillId, { event_type: 'status_change', stage: 'scoring', message: 'Computing final scores...' });
-    const scores = await computeScores(results, env.openrouterApiKey);
+    const scores = await computeScores(results, env.openrouterApiKey, {
+      description: cloneResult.description,
+      tags: cloneResult.tags as string[],
+      name: cloneResult.name,
+    });
     await callbacks.emitActivityEvent(skillId, { event_type: 'info', stage: 'scoring', message: `Scoring complete — overall: ${scores.overall.toFixed(1)}`, metadata: { overall: scores.overall, tokenEfficiency: scores.tokenEfficiency, taskCompletion: scores.taskCompletion } });
 
     await callbacks.updateSkillScores(skillId, {

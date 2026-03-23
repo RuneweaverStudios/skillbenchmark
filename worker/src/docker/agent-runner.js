@@ -100,6 +100,35 @@ function errorOutput(errorMessage, partialResult) {
   };
 }
 
+/**
+ * Validate task completion against success criteria.
+ * If no criteria provided, falls back to "model stopped and produced output".
+ */
+function validateCompletion(finalMessage, totalToolCalls, criteria) {
+  if (!finalMessage || finalMessage.length < 10) return false;
+
+  if (!criteria) return true; // No criteria = any non-empty response is a pass
+
+  // Check required_tool_calls
+  if (criteria.required_tool_calls && totalToolCalls < criteria.required_tool_calls) {
+    return false;
+  }
+
+  // Check expected_output_contains
+  if (criteria.expected_output_contains && Array.isArray(criteria.expected_output_contains)) {
+    const lower = finalMessage.toLowerCase();
+    const matched = criteria.expected_output_contains.filter(
+      (phrase) => lower.includes(phrase.toLowerCase())
+    );
+    // Require at least half of expected phrases to be present
+    if (matched.length < Math.ceil(criteria.expected_output_contains.length / 2)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // OpenRouter API call (native fetch)
 // ---------------------------------------------------------------------------
@@ -176,15 +205,51 @@ function executeBash(command) {
   }
 }
 
+/**
+ * Simulated tool response that returns REALISTIC LARGE output for MCP/API tools.
+ * This is critical for fair benchmarking — native MCP tools return verbose JSON
+ * (5-20KB), and context-optimization skills prove their value by avoiding that bloat.
+ * If we return 200 bytes here, the baseline looks artificially cheap.
+ */
 function executeSimulatedTool(toolName, args) {
-  // Return a plausible JSON blob for non-bash tools.
-  const payload = {
-    success: true,
-    tool: toolName,
-    result: "Simulated response — tool execution not available in benchmark container.",
-    args_received: args,
-  };
-  return truncate(JSON.stringify(payload), SIMULATED_RESPONSE_BYTES);
+  const lowerName = toolName.toLowerCase();
+
+  // MCP-style tools return large verbose JSON (simulates real schema+data bloat)
+  const isMcpTool = lowerName.startsWith("mcp__") || lowerName.startsWith("mcp_");
+  const isDataTool = /query|search|fetch|read|list|get|find/.test(lowerName);
+
+  let targetBytes;
+  if (isMcpTool) {
+    targetBytes = 8000 + Math.floor(Math.random() * 4000); // 8-12KB like real MCP responses
+  } else if (isDataTool) {
+    targetBytes = 4000 + Math.floor(Math.random() * 3000); // 4-7KB
+  } else {
+    targetBytes = 1000 + Math.floor(Math.random() * 1000); // 1-2KB
+  }
+
+  const items = [];
+  const itemCount = Math.max(3, Math.floor(targetBytes / 300));
+
+  for (let i = 0; i < itemCount; i++) {
+    items.push({
+      id: `result-${i}`,
+      type: "document",
+      title: `${toolName} result item ${i}`,
+      content: `Detailed content from ${toolName} for query "${JSON.stringify(args).slice(0, 100)}". `.repeat(3) +
+        `This includes relevant documentation, code examples, and configuration details that a developer would need. ` +
+        `Section ${i}: Additional context and implementation notes for this specific result.`,
+      metadata: {
+        source: toolName,
+        relevance_score: (0.95 - i * 0.05).toFixed(2),
+        timestamp: new Date().toISOString(),
+        schema_version: "v1",
+        provider: lowerName.split("__")[1] || toolName,
+        token_count: Math.floor(targetBytes / 4),
+      },
+    });
+  }
+
+  return JSON.stringify({ success: true, tool: toolName, results: items }, null, 2);
 }
 
 function executeTool(toolName, rawArgs) {
@@ -229,6 +294,7 @@ async function run() {
     maxTurns = 20,
     timeoutMs = 300_000,
     openrouterApiKey,
+    successCriteria = null,
   } = config;
 
   if (!openrouterApiKey) {
@@ -363,12 +429,17 @@ async function run() {
           });
         }
       } else {
-        // No tool calls — model is done (finish_reason === "stop" or equivalent)
-        result.taskCompleted = true;
+        // No tool calls — model is done
         result.finalAssistantMessage =
           typeof assistantMessage.content === "string"
             ? assistantMessage.content
             : JSON.stringify(assistantMessage.content);
+        // Validate against success criteria if provided
+        result.taskCompleted = validateCompletion(
+          result.finalAssistantMessage,
+          result.totalToolCalls,
+          successCriteria
+        );
         result.turnMetrics.push(turnMetric);
         break;
       }
