@@ -48,7 +48,16 @@ export interface ContainerResult {
 // Internals
 // ---------------------------------------------------------------------------
 
-const docker = new Docker();
+// Respect DOCKER_HOST env (e.g., Colima uses unix:///Users/.../.colima/default/docker.sock)
+function createDockerClient(): Docker {
+  const host = process.env.DOCKER_HOST;
+  if (host?.startsWith("unix://")) {
+    return new Docker({ socketPath: host.replace("unix://", "") });
+  }
+  return new Docker();
+}
+
+const docker = createDockerClient();
 
 /** 30-second grace period added on top of config.timeoutMs for container wait. */
 const TIMEOUT_BUFFER_MS = 30_000;
@@ -211,7 +220,12 @@ export async function ensureImageBuilt(
 export async function runBenchmarkContainer(
   config: ContainerConfig
 ): Promise<ContainerResult> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "skillbench-"));
+  // Use home dir for temp — os.tmpdir() returns /var/folders on macOS
+  // which Docker (Colima/Docker Desktop) often can't mount.
+  // On Linux /tmp works fine but $HOME/.cache is universally safe.
+  const tmpBase = path.join(os.homedir(), ".cache", "skillbench");
+  await fs.mkdir(tmpBase, { recursive: true });
+  const tempDir = await fs.mkdtemp(path.join(tmpBase, "run-"));
   let container: Docker.Container | null = null;
 
   try {
