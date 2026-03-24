@@ -182,7 +182,14 @@ async function extractClaims(
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("No JSON in claim extraction response");
 
-  const parsed = JSON.parse(jsonMatch[0]);
+  let parsed: ExtractedClaims;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.error("[scenario-gen] Failed to parse claim extraction JSON:");
+    console.error(jsonMatch[0]);
+    throw new Error(`Invalid claims JSON: ${(e as Error).message}`);
+  }
   if (!Array.isArray(parsed.claims) || parsed.claims.length === 0) {
     throw new Error("No claims extracted");
   }
@@ -217,7 +224,14 @@ async function generateFromClaims(
   const jsonMatch = content.match(/\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error("No JSON array in scenario generation response");
 
-  const scenarios = JSON.parse(jsonMatch[0]) as GeneratedScenario[];
+  let scenarios: GeneratedScenario[];
+  try {
+    scenarios = JSON.parse(jsonMatch[0]) as GeneratedScenario[];
+  } catch (e) {
+    console.error("[scenario-gen] Failed to parse LLM JSON:");
+    console.error(jsonMatch[0]);
+    throw new Error(`Invalid JSON from LLM: ${(e as Error).message}`);
+  }
 
   if (!Array.isArray(scenarios) || scenarios.length === 0) {
     throw new Error("Invalid scenarios: expected non-empty array");
