@@ -75,23 +75,8 @@ function detectCategory(
     }
   }
 
-  // Fallback: runtime heuristic
-  // Heuristic: look at the tools used in with-skill runs
+  // Fallback: runtime heuristic from tool usage patterns
   const skillRuns = results.filter((r) => r.withSkill);
-  const allToolNames = new Set<string>();
-
-  for (const run of skillRuns) {
-    for (const tm of run.result.turnMetrics) {
-      const name = (tm as Record<string, unknown>).toolName ??
-        ((tm as Record<string, unknown>).tool_calls as unknown[])
-          ?.[0]
-          ? "tool" : null;
-      if (typeof name === "string") allToolNames.add(name.toLowerCase());
-    }
-  }
-
-  // Context optimization: heavy bash usage (CLI routing), MCP-like tools
-  // Count bash tool calls by inspecting turn metrics
   let bashCalls = 0;
   for (const run of skillRuns) {
     for (const tm of run.result.turnMetrics) {

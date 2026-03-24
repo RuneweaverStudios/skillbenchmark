@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/runner.ts",
     "start": "tsx src/runner.ts",
-    "build": "tsc"
+    "build": "tsc && cp src/docker/agent-runner.js dist/docker/agent-runner.js && cp src/docker/Dockerfile dist/docker/Dockerfile"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
